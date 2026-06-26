@@ -66,3 +66,15 @@ export {
   type UpdateRecurrenceRuleInput,
   type DueRecurrenceRule,
 } from './queue-recurrence-repository';
+export {
+  QueueRateLimitRepository,
+  queueRateLimitRepository,
+  type UpsertRateLimitBucketInput,
+  type RateLimitConsumeResult,
+} from './queue-rate-limit-repository';
+export {
+  QueueDependencyRepository,
+  queueDependencyRepository,
+  type AddDependencyEdgeInput,
+  type BlockedDependent,
+} from './queue-dependency-repository';

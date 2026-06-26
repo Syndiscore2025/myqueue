@@ -3,12 +3,14 @@ import { env } from '../../config';
 import { ConflictError, NotFoundError } from '../../domain/errors';
 import { QueueEventType, QueueStatus } from '../../domain/queue';
 import type {
+  QueueDependencyRepository,
   QueueEventRepository,
   QueueItemRepository,
   WorkerRegistryRepository,
   WorkspaceQueueSettingsRepository,
 } from '../../infrastructure/repositories';
 import {
+  queueDependencyRepository,
   queueEventRepository,
   queueItemRepository,
   workerRegistryRepository,
@@ -31,6 +33,7 @@ export interface QueueClaimServiceDeps {
   settings?: WorkspaceQueueSettingsRepository;
   publisher?: EventPublisher;
   registry?: WorkerRegistryRepository;
+  dependencies?: QueueDependencyRepository;
 }
 
 const MILLIS_PER_MINUTE = 60_000;
@@ -48,6 +51,7 @@ export class QueueClaimService {
   private readonly settings: WorkspaceQueueSettingsRepository;
   private readonly publisher: EventPublisher;
   private readonly registry: WorkerRegistryRepository;
+  private readonly dependencies: QueueDependencyRepository;
 
   constructor(deps: QueueClaimServiceDeps = {}) {
     this.items = deps.items ?? queueItemRepository;
@@ -55,6 +59,7 @@ export class QueueClaimService {
     this.settings = deps.settings ?? workspaceQueueSettingsRepository;
     this.publisher = deps.publisher ?? eventPublisher;
     this.registry = deps.registry ?? workerRegistryRepository;
+    this.dependencies = deps.dependencies ?? queueDependencyRepository;
   }
 
   /**
@@ -191,6 +196,7 @@ export class QueueClaimService {
       workerId: ctx.workerId,
       occurredAt: now,
     });
+    await this.resolveDependencies(item.id, ctx.workspaceId, 'Done');
     return item;
   }
 
@@ -311,6 +317,7 @@ export class QueueClaimService {
         error: opts.error ?? null,
         occurredAt: now,
       });
+      await this.resolveDependencies(item.id, ctx.workspaceId, 'DeadLetter');
     } else {
       await this.publisher.publish({
         type: 'RetryScheduled',
@@ -323,6 +330,46 @@ export class QueueClaimService {
       });
     }
     return item;
+  }
+
+  /**
+   * After an item reaches a terminal status (Done or DeadLetter), resolve any
+   * downstream dependency edges:
+   *  - Done upstream: unblock all dependents (DEPENDENCY_UNBLOCKED event).
+   *  - DeadLetter upstream: unblock CONTINUE_IF_DEPENDENCY_FAILS edges;
+   *    dead-letter FAIL_IF_DEPENDENCY_FAILS edges (DEAD_LETTERED event).
+   */
+  async resolveDependencies(
+    upstreamItemId: string,
+    upstreamWorkspaceId: string,
+    finalStatus: 'Done' | 'DeadLetter',
+  ): Promise<void> {
+    const { toUnblock, toDeadLetter } = await this.dependencies.findResolvableDependents(
+      upstreamItemId,
+      finalStatus,
+    );
+    for (const dep of toUnblock) {
+      await this.events.record({
+        workspaceId: dep.workspaceId,
+        queueItemId: dep.queueItemId,
+        eventType: QueueEventType.DEPENDENCY_UNBLOCKED,
+        newValue: finalStatus,
+        metadata: { upstreamItemId, resolvedBy: finalStatus },
+      });
+    }
+    for (const dep of toDeadLetter) {
+      await this.items.updateScoped(upstreamWorkspaceId, dep.queueItemId, {
+        status: QueueStatus.DeadLetter,
+      });
+      await this.events.record({
+        workspaceId: dep.workspaceId,
+        queueItemId: dep.queueItemId,
+        eventType: QueueEventType.DEAD_LETTERED,
+        previousValue: QueueStatus.New,
+        newValue: QueueStatus.DeadLetter,
+        metadata: { reason: 'FAIL_IF_DEPENDENCY_FAILS', upstreamItemId },
+      });
+    }
   }
 }
 

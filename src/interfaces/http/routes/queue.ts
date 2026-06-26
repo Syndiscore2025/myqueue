@@ -7,10 +7,15 @@ import {
   queueStatisticsService,
   type CreateItemInput,
 } from '../../../application/queue';
+import {
+  queueRateLimitRepository,
+  queueDependencyRepository,
+} from '../../../infrastructure/repositories';
 import { asyncHandler } from '../../../utils/async-handler';
 import { requireWorkerContext, workerContext } from '../middleware/worker-context';
 import { requireWorkspaceContext, workspaceContext } from '../middleware/workspace-context';
 import {
+  addDependencySchema,
   assignSchema,
   changeStatusSchema,
   createItemSchema,
@@ -22,6 +27,7 @@ import {
   ownerQuerySchema,
   workerItemSchema,
   permanentIdParamSchema,
+  rateLimitKeyParamSchema,
   recalculateSchema,
   recurrenceRuleParamSchema,
   requeueDeadLetterSchema,
@@ -29,6 +35,7 @@ import {
   snoozeSchema,
   updatePrioritySchema,
   updateSettingsSchema,
+  upsertRateLimitBucketSchema,
 } from './queue.schemas';
 
 /**
@@ -444,5 +451,91 @@ queueRouter.post(
     const { ruleId } = recurrenceRuleParamSchema.parse(req.params);
     const rule = await queueRecurrenceService.resumeRule(ruleId, ctx.workspaceId);
     res.status(200).json({ rule });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Phase 3C — Rate-limit bucket endpoints
+// ---------------------------------------------------------------------------
+
+/** PUT /rate-limit-buckets — create or update a sliding-window bucket */
+queueRouter.put(
+  '/rate-limit-buckets',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const body = upsertRateLimitBucketSchema.parse(req.body);
+    const bucket = await queueRateLimitRepository.upsert({
+      workspaceId: ctx.workspaceId,
+      ...body,
+    });
+    res.status(200).json({ bucket });
+  }),
+);
+
+/** GET /rate-limit-buckets — list all buckets for the workspace */
+queueRouter.get(
+  '/rate-limit-buckets',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const buckets = await queueRateLimitRepository.list(ctx.workspaceId);
+    res.status(200).json({ buckets });
+  }),
+);
+
+/** GET /rate-limit-buckets/:rateLimitKey — get a single bucket */
+queueRouter.get(
+  '/rate-limit-buckets/:rateLimitKey',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { rateLimitKey } = rateLimitKeyParamSchema.parse(req.params);
+    const bucket = await queueRateLimitRepository.findByKey(ctx.workspaceId, rateLimitKey);
+    if (!bucket) {
+      res.status(404).json({ error: 'Rate limit bucket not found' });
+      return;
+    }
+    res.status(200).json({ bucket });
+  }),
+);
+
+/** DELETE /rate-limit-buckets/:rateLimitKey — remove a bucket */
+queueRouter.delete(
+  '/rate-limit-buckets/:rateLimitKey',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { rateLimitKey } = rateLimitKeyParamSchema.parse(req.params);
+    await queueRateLimitRepository.delete(ctx.workspaceId, rateLimitKey);
+    res.status(204).send();
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Phase 3C — Dependency endpoints
+// ---------------------------------------------------------------------------
+
+/** POST /items/:permanentQueueId/dependencies — declare a blocking dependency */
+queueRouter.post(
+  '/items/:permanentQueueId/dependencies',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { permanentQueueId } = permanentIdParamSchema.parse(req.params);
+    const body = addDependencySchema.parse(req.body);
+    const edge = await queueDependencyRepository.addEdge({
+      workspaceId: ctx.workspaceId,
+      permanentQueueId,
+      dependsOnPermanentQueueId: body.dependsOnPermanentQueueId,
+      dependencyType: body.dependencyType,
+    });
+    res.status(201).json({ edge });
+  }),
+);
+
+/** GET /items/:permanentQueueId/dependencies — list dependencies for an item */
+queueRouter.get(
+  '/items/:permanentQueueId/dependencies',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { permanentQueueId } = permanentIdParamSchema.parse(req.params);
+    const edges = await queueDependencyRepository.listForItem(ctx.workspaceId, permanentQueueId);
+    res.status(200).json({ edges });
   }),
 );

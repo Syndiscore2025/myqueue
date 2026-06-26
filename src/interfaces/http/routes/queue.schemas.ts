@@ -127,3 +127,31 @@ export const createRecurrenceRuleSchema = z.object({
 export const recurrenceRuleParamSchema = z.object({
   ruleId: z.string().min(1),
 });
+
+// ---------------------------------------------------------------------------
+// Phase 3C — Rate limit buckets
+// ---------------------------------------------------------------------------
+
+/** Body for creating / updating a rate-limit bucket. */
+export const upsertRateLimitBucketSchema = z.object({
+  rateLimitKey: z.string().min(1).max(255),
+  windowSeconds: z.number().int().positive(),
+  maxItems: z.number().int().positive(),
+});
+
+/** Route param for a rate-limit key (URL-encoded). */
+export const rateLimitKeyParamSchema = z.object({
+  rateLimitKey: z.string().min(1),
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3C — Dependencies
+// ---------------------------------------------------------------------------
+
+/** Body for adding a dependency edge. */
+export const addDependencySchema = z.object({
+  dependsOnPermanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
+  dependencyType: z
+    .enum(['COMPLETE_REQUIRED', 'FAIL_IF_DEPENDENCY_FAILS', 'CONTINUE_IF_DEPENDENCY_FAILS'])
+    .default('COMPLETE_REQUIRED'),
+});

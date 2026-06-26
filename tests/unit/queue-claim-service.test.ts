@@ -23,11 +23,13 @@ interface Mocks {
     completeProcessing: jest.Mock;
     releaseProcessing: jest.Mock;
     failProcessing: jest.Mock;
+    updateScoped: jest.Mock;
   };
   events: { record: jest.Mock };
   settings: { ensure: jest.Mock };
   publisher: { publish: jest.Mock };
   registry: { register: jest.Mock };
+  dependencies: { findResolvableDependents: jest.Mock };
 }
 
 /** Fresh mock collaborators plus a QueueClaimService wired to them. */
@@ -43,11 +45,15 @@ function build(rankingMode: QueueRankingMode = QueueRankingMode.PRIORITY): {
       completeProcessing: jest.fn(),
       releaseProcessing: jest.fn(),
       failProcessing: jest.fn(),
+      updateScoped: jest.fn().mockResolvedValue({}),
     },
     events: { record: jest.fn() },
     settings: { ensure: jest.fn() },
     publisher: { publish: jest.fn() },
     registry: { register: jest.fn() },
+    dependencies: {
+      findResolvableDependents: jest.fn().mockResolvedValue({ toUnblock: [], toDeadLetter: [] }),
+    },
   };
   m.settings.ensure.mockResolvedValue({
     rankingMode,
@@ -60,6 +66,7 @@ function build(rankingMode: QueueRankingMode = QueueRankingMode.PRIORITY): {
     settings: m.settings as unknown as WorkspaceQueueSettingsRepository,
     publisher: m.publisher,
     registry: m.registry as unknown as WorkerRegistryRepository,
+    dependencies: m.dependencies as never,
   };
   return { svc: new QueueClaimService(deps), m };
 }

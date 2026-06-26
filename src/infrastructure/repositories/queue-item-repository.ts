@@ -292,13 +292,38 @@ export class QueueItemRepository {
         : Prisma.sql`"ranking_timestamp" ASC, "permanent_queue_id" ASC`;
     return this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT "id"
-        FROM "queue_items"
-        WHERE "workspace_id" = ${params.workspaceId}
-          AND "status" = CAST(${QueueStatus.New} AS "QueueStatus")
-          AND ("available_at" IS NULL OR "available_at" <= ${now})
+        SELECT qi."id"
+        FROM "queue_items" qi
+        LEFT JOIN "queue_rate_limit_buckets" rlb
+          ON rlb."workspace_id" = qi."workspace_id"
+         AND rlb."rate_limit_key"  = qi."rate_limit_key"
+        LEFT JOIN "queue_dependencies" qd
+          ON qd."queue_item_id" = qi."id"
+        LEFT JOIN "queue_items" dep
+          ON dep."id" = qd."depends_on_queue_item_id"
+         AND dep."status" NOT IN ('Done','Archived','DeadLetter')
+        WHERE qi."workspace_id" = ${params.workspaceId}
+          AND qi."status" = CAST(${QueueStatus.New} AS "QueueStatus")
+          AND (qi."available_at" IS NULL OR qi."available_at" <= ${now})
+          AND (
+            qi."rate_limit_key" IS NULL
+            OR rlb."id" IS NULL
+            OR rlb."current_count" < rlb."max_items"
+            OR ${now} > rlb."window_started_at" + (rlb."window_seconds" || ' seconds')::interval
+          )
+          AND (
+            qi."partition_key" IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM "queue_items" p
+              WHERE p."workspace_id" = qi."workspace_id"
+                AND p."partition_key"  = qi."partition_key"
+                AND p."status" = 'Processing'
+            )
+          )
+        GROUP BY qi."id", qi."priority", qi."ranking_timestamp", qi."permanent_queue_id"
+        HAVING COUNT(dep."id") = 0
         ORDER BY ${orderBy}
-        FOR UPDATE SKIP LOCKED
+        FOR UPDATE OF qi SKIP LOCKED
         LIMIT 1
       `);
       const candidate = rows[0];
