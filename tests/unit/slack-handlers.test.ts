@@ -30,6 +30,11 @@ import { registerAppHome } from '../../src/interfaces/slack/handlers/app-home';
 import { parseCommandView, registerCommands } from '../../src/interfaces/slack/handlers/commands';
 import { deriveTitle, registerShortcuts } from '../../src/interfaces/slack/handlers/shortcuts';
 import {
+  parseOverflowValue,
+  registerActions,
+  sourceView,
+} from '../../src/interfaces/slack/handlers/actions';
+import {
   ACTION_ID_TO_ITEM_ACTION,
   applyItemAction,
   loadQueueView,
@@ -295,5 +300,124 @@ describe('registerShortcuts', () => {
     const opened = open.mock.calls[0][0] as { view: { title: { text: string } } };
     expect(opened.view.title.text).toBe('MyQueue');
     expect(queueService.createItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('parseOverflowValue', () => {
+  it('decodes a complete/archive option value', () => {
+    expect(parseOverflowValue('complete:MQ-1')).toEqual({
+      action: 'complete',
+      permanentQueueId: 'MQ-1',
+    });
+    expect(parseOverflowValue('archive:MQ-2')).toEqual({
+      action: 'archive',
+      permanentQueueId: 'MQ-2',
+    });
+  });
+
+  it('rejects malformed or unknown values', () => {
+    expect(parseOverflowValue('MQ-1')).toBeNull();
+    expect(parseOverflowValue('complete:')).toBeNull();
+    expect(parseOverflowValue('snooze:MQ-1')).toBeNull();
+  });
+});
+
+describe('sourceView', () => {
+  it('reads the current view from the home private_metadata', () => {
+    expect(sourceView({ user: { id: 'U1' }, view: { private_metadata: QueueView.Working } })).toBe(
+      QueueView.Working,
+    );
+  });
+
+  it('defaults to the active queue when metadata is absent or invalid', () => {
+    expect(sourceView({ user: { id: 'U1' } })).toBe(QueueView.All);
+    expect(sourceView({ user: { id: 'U1' }, view: { private_metadata: 'bogus' } })).toBe(
+      QueueView.All,
+    );
+  });
+});
+
+describe('registerActions', () => {
+  type Handler = (args: unknown) => Promise<void>;
+  function capture(): Map<string, Handler> {
+    const handlers = new Map<string, Handler>();
+    const app = {
+      action: (id: string, h: Handler) => {
+        handlers.set(id, h);
+      },
+    } as unknown as App;
+    registerActions(app);
+    return handlers;
+  }
+
+  const homeBody = { user: { id: 'U1' }, view: { type: 'home', private_metadata: QueueView.All } };
+
+  it('navigates the App Home to the selected view', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.getWorkingQueue).mockResolvedValue([item()]);
+    const publish = jest.fn();
+    const ack = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.selectView)!({
+      ack,
+      body: homeBody,
+      action: { value: QueueView.Working },
+      client: { views: { publish } },
+      context: { teamId: 'T1' },
+      respond: jest.fn(),
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    const arg = publish.mock.calls[0][0] as { view: { private_metadata: string } };
+    expect(arg.view.private_metadata).toBe(QueueView.Working);
+  });
+
+  it('applies a primary item action then re-publishes the source view', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.changeStatus).mockResolvedValue({ status: QueueStatus.Working });
+    mock(queueService.getActiveQueue).mockResolvedValue([]);
+    const publish = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.itemWorking)!({
+      ack: jest.fn(),
+      body: homeBody,
+      action: { value: 'MQ-1' },
+      client: { views: { publish } },
+      context: { teamId: 'T1' },
+      respond: jest.fn(),
+    });
+    expect(queueService.changeStatus).toHaveBeenCalledWith(ctx, 'MQ-1', QueueStatus.Working);
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies an overflow action from its encoded value', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.complete).mockResolvedValue({ status: QueueStatus.Done });
+    mock(queueService.getActiveQueue).mockResolvedValue([]);
+    const publish = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.itemOverflow)!({
+      ack: jest.fn(),
+      body: homeBody,
+      action: { selected_option: { value: 'complete:MQ-1' } },
+      client: { views: { publish } },
+      context: { teamId: 'T1' },
+      respond: jest.fn(),
+    });
+    expect(queueService.complete).toHaveBeenCalledWith(ctx, 'MQ-1');
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces the ephemeral reply when the action is off the home tab', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.getActiveQueue).mockResolvedValue([]);
+    const respond = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.refresh)!({
+      ack: jest.fn(),
+      body: { user: { id: 'U1' } },
+      action: { value: QueueView.All },
+      client: { views: { publish: jest.fn() } },
+      context: { teamId: 'T1' },
+      respond,
+    });
+    const reply = respond.mock.calls[0][0] as { replace_original: boolean; blocks: unknown[] };
+    expect(reply.replace_original).toBe(true);
+    expect(reply.blocks.length).toBeGreaterThan(0);
   });
 });
