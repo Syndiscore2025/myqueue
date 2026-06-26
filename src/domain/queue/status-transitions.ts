@@ -11,6 +11,14 @@ export const INITIAL_STATUS: QueueStatus = QueueStatus.New;
  * strict: any move not listed here is rejected. A no-op (from === to) is never
  * allowed and is not listed. `Archived` is terminal and has no outgoing edges;
  * `Done` may be re-opened to `Working` or archived.
+ *
+ * Phase 3B adds the worker-processing edges (additive — no Phase 3A edge is
+ * changed or removed):
+ *   - `New -> Processing`   when a worker claims the item.
+ *   - `Processing -> Done`  on successful completion.
+ *   - `Processing -> New`   on release, recovery, or a retry with budget left.
+ *   - `Processing -> DeadLetter` when the retry budget is exhausted.
+ *   - `DeadLetter -> New`   when an operator requeues a dead-lettered item.
  */
 export const ALLOWED_TRANSITIONS: Readonly<Record<QueueStatus, readonly QueueStatus[]>> = {
   [QueueStatus.New]: [
@@ -20,6 +28,7 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<QueueStatus, readonly QueueSta
     QueueStatus.Snoozed,
     QueueStatus.Done,
     QueueStatus.Archived,
+    QueueStatus.Processing,
   ],
   [QueueStatus.Working]: [
     QueueStatus.Waiting,
@@ -52,6 +61,8 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<QueueStatus, readonly QueueSta
   ],
   [QueueStatus.Done]: [QueueStatus.Working, QueueStatus.Archived],
   [QueueStatus.Archived]: [],
+  [QueueStatus.Processing]: [QueueStatus.Done, QueueStatus.New, QueueStatus.DeadLetter],
+  [QueueStatus.DeadLetter]: [QueueStatus.New],
 };
 
 /** The statuses an item in `from` may legally move to. */

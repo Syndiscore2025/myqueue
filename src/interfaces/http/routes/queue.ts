@@ -1,15 +1,26 @@
 import { Router } from 'express';
-import { queueService, type CreateItemInput } from '../../../application/queue';
+import {
+  queueClaimService,
+  queueDeadLetterService,
+  queueService,
+  queueStatisticsService,
+  type CreateItemInput,
+} from '../../../application/queue';
 import { asyncHandler } from '../../../utils/async-handler';
+import { requireWorkerContext, workerContext } from '../middleware/worker-context';
 import { requireWorkspaceContext, workspaceContext } from '../middleware/workspace-context';
 import {
   assignSchema,
   changeStatusSchema,
   createItemSchema,
   followUpSchema,
+  failSchema,
+  heartbeatSchema,
   ownerQuerySchema,
+  workerItemSchema,
   permanentIdParamSchema,
   recalculateSchema,
+  requeueDeadLetterSchema,
   snoozeSchema,
   updatePrioritySchema,
   updateSettingsSchema,
@@ -22,7 +33,102 @@ import {
  */
 export const queueRouter = Router();
 
+// Worker-facing claim endpoint. Registered before the workspace-user guard so it
+// is guarded by {@link workerContext} (x-worker-id) rather than requiring an
+// acting workspace user — the worker itself is the actor.
+queueRouter.post(
+  '/claim',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const item = await queueClaimService.claim(ctx);
+    res.status(200).json({ item });
+  }),
+);
+
+// Worker heartbeat extending the lease on the item the worker is processing.
+queueRouter.post(
+  '/heartbeat',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const body = heartbeatSchema.parse(req.body);
+    const item = await queueClaimService.heartbeat(ctx, body.permanentQueueId);
+    res.status(200).json({ item });
+  }),
+);
+
+// Worker: mark the claimed item as successfully completed (Processing -> Done).
+queueRouter.post(
+  '/complete',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const body = workerItemSchema.parse(req.body);
+    const item = await queueClaimService.complete(ctx, body.permanentQueueId);
+    res.status(200).json({ item });
+  }),
+);
+
+// Worker: gracefully release the claimed item back to the queue (Processing -> New).
+queueRouter.post(
+  '/release',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const body = workerItemSchema.parse(req.body);
+    const item = await queueClaimService.release(ctx, body.permanentQueueId);
+    res.status(200).json({ item });
+  }),
+);
+
+// Worker: report a processing failure; retries if attempts remain, DLQ otherwise.
+queueRouter.post(
+  '/fail',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const body = failSchema.parse(req.body);
+    const item = await queueClaimService.fail(ctx, body.permanentQueueId, {
+      error: body.error ?? null,
+      errorStack: body.errorStack ?? null,
+    });
+    res.status(200).json({ item });
+  }),
+);
+
 queueRouter.use(workspaceContext);
+
+// Operator: list the workspace's dead-lettered items.
+queueRouter.get(
+  '/dead-letter',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const items = await queueDeadLetterService.list(ctx);
+    res.status(200).json({ items });
+  }),
+);
+
+// Operator: requeue a dead-lettered item back to the queue (DeadLetter -> New).
+queueRouter.post(
+  '/dead-letter/requeue',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const body = requeueDeadLetterSchema.parse(req.body);
+    const item = await queueDeadLetterService.requeue(ctx, body.permanentQueueId);
+    res.status(200).json({ item });
+  }),
+);
+
+// Operator: read aggregate statistics for the workspace's queue.
+queueRouter.get(
+  '/statistics',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const statistics = await queueStatisticsService.get(ctx.workspaceId);
+    res.status(200).json({ statistics });
+  }),
+);
 
 queueRouter.post(
   '/items',

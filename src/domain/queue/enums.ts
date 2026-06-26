@@ -7,7 +7,13 @@
  * layer stays free of any infrastructure import.
  */
 
-/** Lifecycle state of a queue item. */
+/**
+ * Lifecycle state of a queue item.
+ *
+ * `Processing` and `DeadLetter` are the Phase 3B processing states (additive —
+ * the Phase 3A states are unchanged): `Processing` for an item currently claimed
+ * by a worker, `DeadLetter` for an item that exhausted its retry budget.
+ */
 export const QueueStatus = {
   New: 'New',
   Working: 'Working',
@@ -16,6 +22,8 @@ export const QueueStatus = {
   Snoozed: 'Snoozed',
   Done: 'Done',
   Archived: 'Archived',
+  Processing: 'Processing',
+  DeadLetter: 'DeadLetter',
 } as const;
 export type QueueStatus = (typeof QueueStatus)[keyof typeof QueueStatus];
 
@@ -43,7 +51,11 @@ export const QueueSourceType = {
 } as const;
 export type QueueSourceType = (typeof QueueSourceType)[keyof typeof QueueSourceType];
 
-/** Auditable queue actions recorded in the append-only event log. */
+/**
+ * Auditable queue actions recorded in the append-only event log.
+ *
+ * The trailing members are Phase 3B processing-lifecycle actions (additive).
+ */
 export const QueueEventType = {
   CREATED: 'CREATED',
   ASSIGNED: 'ASSIGNED',
@@ -57,8 +69,23 @@ export const QueueEventType = {
   COMPLETED: 'COMPLETED',
   ARCHIVED: 'ARCHIVED',
   RECALCULATED: 'RECALCULATED',
+  CLAIMED: 'CLAIMED',
+  RELEASED: 'RELEASED',
+  RECOVERED: 'RECOVERED',
+  FAILED: 'FAILED',
+  RETRY_SCHEDULED: 'RETRY_SCHEDULED',
+  DEAD_LETTERED: 'DEAD_LETTERED',
+  REQUEUED: 'REQUEUED',
 } as const;
 export type QueueEventType = (typeof QueueEventType)[keyof typeof QueueEventType];
+
+/** Liveness of a registered worker process within a workspace. */
+export const WorkerStatus = {
+  ACTIVE: 'ACTIVE',
+  IDLE: 'IDLE',
+  DEAD: 'DEAD',
+} as const;
+export type WorkerStatus = (typeof WorkerStatus)[keyof typeof WorkerStatus];
 
 /**
  * Rank weight of each priority for ordering (lower sorts first / higher up the

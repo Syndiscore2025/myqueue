@@ -29,6 +29,26 @@ describe('queue status transitions', () => {
     expect(canTransition(QueueStatus.New, QueueStatus.New)).toBe(false);
   });
 
+  it('permits the Phase 3B worker-processing transitions', () => {
+    expect(canTransition(QueueStatus.New, QueueStatus.Processing)).toBe(true);
+    expect(canTransition(QueueStatus.Processing, QueueStatus.Done)).toBe(true);
+    expect(canTransition(QueueStatus.Processing, QueueStatus.New)).toBe(true);
+    expect(canTransition(QueueStatus.Processing, QueueStatus.DeadLetter)).toBe(true);
+    expect(canTransition(QueueStatus.DeadLetter, QueueStatus.New)).toBe(true);
+  });
+
+  it('only claimable items (New) may enter Processing', () => {
+    for (const from of Object.values(QueueStatus)) {
+      const expected = from === QueueStatus.New;
+      expect(canTransition(from, QueueStatus.Processing)).toBe(expected);
+    }
+  });
+
+  it('keeps DeadLetter recoverable but not directly completable', () => {
+    expect(isTerminalStatus(QueueStatus.DeadLetter)).toBe(false);
+    expect(canTransition(QueueStatus.DeadLetter, QueueStatus.Done)).toBe(false);
+  });
+
   it('never allows a no-op (same-status) transition', () => {
     for (const status of Object.values(QueueStatus)) {
       expect(canTransition(status, status)).toBe(false);

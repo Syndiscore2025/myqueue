@@ -6,21 +6,27 @@ import {
 import { z } from 'zod';
 import { appInfo } from '../../config/app-info';
 import { env } from '../../config';
+import { WORKER_ID_HEADER } from './middleware/worker-context';
 import { WORKSPACE_ID_HEADER, WORKSPACE_USER_ID_HEADER } from './middleware/workspace-context';
 import {
   assignSchema,
   changeStatusSchema,
   createItemSchema,
   followUpSchema,
+  failSchema,
+  heartbeatSchema,
   permanentIdParamSchema,
+  workerItemSchema,
   queuePrioritySchema,
   queueRankingModeSchema,
   queueSourceTypeSchema,
   queueStatusSchema,
   recalculateSchema,
+  requeueDeadLetterSchema,
   snoozeSchema,
   updatePrioritySchema,
   updateSettingsSchema,
+  workerStatusSchema,
 } from './routes/queue.schemas';
 
 extendZodWithOpenApi(z);
@@ -204,6 +210,26 @@ const QueueSettingsSchema = registry.register(
   }),
 );
 
+const WorkerRegistrationSchema = registry.register(
+  'WorkerRegistration',
+  z.object({
+    id: z.string(),
+    workspaceId: z.string(),
+    workerId: z.string().openapi({ example: 'worker-1' }),
+    hostname: z.string().nullable(),
+    status: workerStatusSchema,
+    processingCount: z
+      .number()
+      .int()
+      .openapi({ description: 'Items the worker currently holds in Processing (derived live).' }),
+    startedAt: z.string(),
+    lastSeenAt: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+);
+const WorkersEnvelope = z.object({ workers: z.array(WorkerRegistrationSchema) });
+
 const RankedItem = z.object({ item: QueueItemSchema, position: z.number().int() });
 const ItemEnvelope = z.object({ item: QueueItemSchema });
 const ItemWithPosition = z.object({
@@ -341,7 +367,193 @@ registry.registerPath({
   },
 });
 
-/** Generate the OpenAPI 3.0 document for the MyQueue HTTP surface. */
+// --- Dead Letter Queue (Phase 3B) --------------------------------------------
+// Operator-facing routes guarded by workspace context.
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/queue/dead-letter',
+  summary: 'List dead-lettered items',
+  description: 'Items that exhausted their retry budget, oldest dead-lettered first.',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The dead-lettered items.', content: json(ItemsEnvelope) },
+    ...guarded,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/dead-letter/requeue',
+  summary: 'Requeue a dead-lettered item',
+  description:
+    'Moves a DeadLetter item back to New, resetting attempt_count and clearing failure state ' +
+    'so it receives a fresh processing budget.',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders, body: { content: json(requeueDeadLetterSchema) } },
+  responses: {
+    200: { description: 'The requeued item.', content: json(ItemEnvelope) },
+    404: { description: 'No such item in the workspace.', content: json(ErrorResponse) },
+    409: { description: 'Item is not in the Dead Letter Queue.', content: json(ErrorResponse) },
+    ...guarded,
+  },
+});
+
+// --- Queue statistics (Phase 3B) ---------------------------------------------
+// Operator-facing aggregate view guarded by workspace context.
+
+const QueueStatisticsSchema = registry.register(
+  'QueueStatistics',
+  z.object({
+    counts: z.record(z.string(), z.number().int()).openapi({
+      description: 'Item counts keyed by status; every status is present (zero when empty).',
+    }),
+    averageWaitTimeMs: z.number().nullable(),
+    averageProcessingTimeMs: z.number().nullable(),
+    totalRetries: z.number().int(),
+    averageRetryCount: z.number().nullable(),
+    oldestQueuedAt: z.string().nullable(),
+    newestQueuedAt: z.string().nullable(),
+    averageQueueAgeMs: z.number().nullable(),
+    longestProcessingJobMs: z.number().nullable(),
+    workerUtilization: z.object({
+      totalWorkers: z.number().int(),
+      busyWorkers: z.number().int(),
+      ratio: z.number().openapi({ description: 'busyWorkers / totalWorkers in [0, 1].' }),
+    }),
+  }),
+);
+const StatisticsEnvelope = z.object({ statistics: QueueStatisticsSchema });
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/queue/statistics',
+  summary: 'Read aggregate queue statistics',
+  description:
+    'Counts by status, average wait/processing time, retries, oldest/newest queued item, ' +
+    'average queue age, longest in-flight job, and live worker utilization for the workspace.',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The workspace queue statistics.', content: json(StatisticsEnvelope) },
+    ...guarded,
+  },
+});
+
+// --- Queue worker processing (Phase 3B) --------------------------------------
+// Worker-facing routes identified by an explicit worker id rather than a user.
+
+const workerHeaders = z.object({
+  [WORKSPACE_ID_HEADER]: z.string().openapi({ description: 'Acting workspace (tenant) id.' }),
+  [WORKER_ID_HEADER]: z.string().openapi({ description: 'Claiming worker id.' }),
+});
+const ClaimEnvelope = z.object({ item: QueueItemSchema.nullable() });
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/claim',
+  summary: 'Claim the next queued item for a worker',
+  description:
+    'Atomically claims the highest-ranked New item (FOR UPDATE SKIP LOCKED), moving it to ' +
+    'Processing and stamping the lease. Returns { item: null } when nothing is queued.',
+  tags: ['Queue'],
+  request: { headers: workerHeaders },
+  responses: {
+    200: {
+      description: 'The claimed item, or null when the queue is empty.',
+      content: json(ClaimEnvelope),
+    },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
+  },
+});
+
+const HeartbeatEnvelope = z.object({ item: QueueItemSchema });
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/heartbeat',
+  summary: 'Extend the lease on an item a worker is processing',
+  description:
+    'Refreshes heartbeat_at and pushes back lock_expires_at for the named item, provided it ' +
+    'is still Processing and still leased by this worker. Workers that stop heartbeating ' +
+    'become recoverable.',
+  tags: ['Queue'],
+  request: { headers: workerHeaders, body: { content: json(heartbeatSchema) } },
+  responses: {
+    200: { description: 'The item with its refreshed lease.', content: json(HeartbeatEnvelope) },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
+    404: { description: 'No such item in the workspace.', content: json(ErrorResponse) },
+    409: { description: 'The item is not leased by this worker.', content: json(ErrorResponse) },
+  },
+});
+
+const WorkerItemEnvelope = z.object({ item: QueueItemSchema });
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/complete',
+  summary: 'Mark an item as successfully completed by a worker',
+  tags: ['Queue'],
+  request: { headers: workerHeaders, body: { content: json(workerItemSchema) } },
+  responses: {
+    200: { description: 'The completed item.', content: json(WorkerItemEnvelope) },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
+    404: { description: 'No such item.', content: json(ErrorResponse) },
+    409: { description: 'Item not leased by this worker.', content: json(ErrorResponse) },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/release',
+  summary: 'Gracefully release an item back to the queue',
+  tags: ['Queue'],
+  request: { headers: workerHeaders, body: { content: json(workerItemSchema) } },
+  responses: {
+    200: { description: 'The released item.', content: json(WorkerItemEnvelope) },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
+    404: { description: 'No such item.', content: json(ErrorResponse) },
+    409: { description: 'Item not leased by this worker.', content: json(ErrorResponse) },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/fail',
+  summary: 'Report a processing failure; retries or moves to Dead Letter Queue',
+  description:
+    'Increments attempt_count. If attempts < QUEUE_MAX_RETRIES, re-queues the item (Processing → New). ' +
+    'Otherwise moves it to DeadLetter.',
+  tags: ['Queue'],
+  request: { headers: workerHeaders, body: { content: json(failSchema) } },
+  responses: {
+    200: { description: 'The failed/re-queued item.', content: json(WorkerItemEnvelope) },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
+    404: { description: 'No such item.', content: json(ErrorResponse) },
+    409: { description: 'Item not leased by this worker.', content: json(ErrorResponse) },
+  },
+});
+
+// --- Worker registry (Phase 3B) ----------------------------------------------
+// Operator-facing read of the workspace's known workers. Workers auto-register
+// on their first claim or heartbeat; this route is guarded by workspace context.
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/workers',
+  summary: 'List the workspace registered workers',
+  description:
+    'Workers auto-register on their first claim or heartbeat. Each entry carries a live ' +
+    'processing_count of the items the worker currently holds in Processing.',
+  tags: ['Workers'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The registered workers.', content: json(WorkersEnvelope) },
+    ...guarded,
+  },
+});
+
 export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateDocument']> {
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({

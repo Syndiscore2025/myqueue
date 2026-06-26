@@ -4,6 +4,7 @@ import {
   QueueRankingMode,
   QueueSourceType,
   QueueStatus,
+  WorkerStatus,
 } from '../../../domain/queue';
 
 /** Reusable enum schemas mirroring the domain value sets. */
@@ -11,6 +12,7 @@ export const queueStatusSchema = z.nativeEnum(QueueStatus);
 export const queuePrioritySchema = z.nativeEnum(QueuePriority);
 export const queueSourceTypeSchema = z.nativeEnum(QueueSourceType);
 export const queueRankingModeSchema = z.nativeEnum(QueueRankingMode);
+export const workerStatusSchema = z.nativeEnum(WorkerStatus);
 
 /** Body for creating a queue item. Priority is auto-classified when omitted. */
 export const createItemSchema = z.object({
@@ -70,5 +72,27 @@ export const ownerQuerySchema = z.object({
 
 /** Path parameter carrying a permanent queue id (e.g. MQ-000123). */
 export const permanentIdParamSchema = z.object({
+  permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
+});
+
+/** Body for a worker heartbeat, naming the item whose lease to extend. */
+export const heartbeatSchema = z.object({
+  permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
+});
+
+/** Body for a worker completing or releasing an item (names the item only). */
+export const workerItemSchema = z.object({
+  permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
+});
+
+/** Body for a worker reporting a processing failure. */
+export const failSchema = z.object({
+  permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
+  error: z.string().max(2000).nullish(),
+  errorStack: z.string().max(10_000).nullish(),
+});
+
+/** Body for an operator requeuing a dead-lettered item back to the queue. */
+export const requeueDeadLetterSchema = z.object({
   permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
 });

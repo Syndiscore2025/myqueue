@@ -32,6 +32,15 @@ export {
   type CreateQueueItemInput,
   type QueueItemUpdate,
   type ListByOwnerOptions,
+  type ClaimNextParams,
+  type ExtendLeaseParams,
+  type RecoveredItem,
+  type RecoverExpiredParams,
+  type CompleteProcessingParams,
+  type ReleaseProcessingParams,
+  type FailProcessingParams,
+  type RequeueDeadLetterParams,
+  type QueueStatistics,
 } from './queue-item-repository';
 export {
   QueueEventRepository,
@@ -45,3 +54,8 @@ export {
   type PriorityHistoryEntry,
   type AssignmentEntry,
 } from './queue-history-repository';
+export {
+  WorkerRegistryRepository,
+  workerRegistryRepository,
+  type RegisterWorkerParams,
+} from './worker-registry-repository';

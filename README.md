@@ -13,6 +13,10 @@ Docker packaging, a full test suite, and CI/CD:
 - **Phase 3A** — the queue engine: domain models, ranking & position engine, and
   an internal `/api/v1/queue` API (see
   [docs/queue-engine.md](docs/queue-engine.md)).
+- **Phase 3B** — the processing engine: worker claiming/locking, heartbeats,
+  automatic recovery, a retry engine, a Dead Letter Queue, a worker registry, and
+  queue statistics — many workers process the queue concurrently with no
+  duplicate execution (see [docs/queue-engine.md](docs/queue-engine.md)).
 
 ## Tech stack
 
@@ -77,7 +81,7 @@ This starts the API, a background worker, PostgreSQL, and Redis. See
 
 - [Getting Started](docs/getting-started.md)
 - [Architecture Overview](docs/architecture.md)
-- [Queue Engine (Phase 3A)](docs/queue-engine.md)
+- [Queue Engine (Phases 3A & 3B)](docs/queue-engine.md)
 - [Local Development Guide](docs/local-development.md)
 - [Docker Guide](docs/docker.md)
 - [Environment Guide](docs/environment.md)
