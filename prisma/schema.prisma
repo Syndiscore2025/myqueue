@@ -504,12 +504,16 @@ model WorkerRegistration {
 /// Scheduler checks enabled rules; when next_run_at <= now() it spawns a child
 /// QueueItem and advances next_run_at using the cron expression + timezone.
 model QueueRecurrenceRule {
-  id              String        @id @default(cuid())
-  workspaceId     String        @map("workspace_id")
-  name            String
-  cronExpression  String        @map("cron_expression")
-  timezone        String        @default("UTC")
-  isEnabled       Boolean       @default(true) @map("is_enabled")
+  id                       String        @id @default(cuid())
+  workspaceId              String        @map("workspace_id")
+  /// User who created this rule (audit trail).
+  createdByWorkspaceUserId String?       @map("created_by_workspace_user_id")
+  /// User who will own the QueueItems spawned by this rule. Defaults to creator.
+  ownerWorkspaceUserId     String?       @map("owner_workspace_user_id")
+  name                     String
+  cronExpression           String        @map("cron_expression")
+  timezone                 String        @default("UTC")
+  isEnabled                Boolean       @default(true) @map("is_enabled")
   nextRunAt       DateTime?     @map("next_run_at")
   lastRunAt       DateTime?     @map("last_run_at")
   maxRuns         Int?          @map("max_runs")

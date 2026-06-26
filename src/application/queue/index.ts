@@ -54,3 +54,9 @@ export {
   type QueueStatisticsView,
   type WorkerUtilization,
 } from './queue-statistics-service';
+export {
+  QueueRecurrenceService,
+  queueRecurrenceService,
+  nextRunAfter,
+  type QueueRecurrenceServiceDeps,
+} from './queue-recurrence-service';

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   queueClaimService,
   queueDeadLetterService,
+  queueRecurrenceService,
   queueService,
   queueStatisticsService,
   type CreateItemInput,
@@ -13,6 +14,7 @@ import {
   assignSchema,
   changeStatusSchema,
   createItemSchema,
+  createRecurrenceRuleSchema,
   delaySchema,
   followUpSchema,
   failSchema,
@@ -21,6 +23,7 @@ import {
   workerItemSchema,
   permanentIdParamSchema,
   recalculateSchema,
+  recurrenceRuleParamSchema,
   requeueDeadLetterSchema,
   scheduleSchema,
   snoozeSchema,
@@ -368,5 +371,78 @@ queueRouter.post(
     const { ownerWorkspaceUserId } = assignSchema.parse(req.body);
     const item = await queueService.assign(ctx, permanentQueueId, ownerWorkspaceUserId);
     res.status(200).json({ item });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Phase 3C — Recurrence rule endpoints
+// ---------------------------------------------------------------------------
+
+/** POST /recurrence-rules — create a new cron rule */
+queueRouter.post(
+  '/recurrence-rules',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const body = createRecurrenceRuleSchema.parse(req.body);
+    const rule = await queueRecurrenceService.createRule({
+      workspaceId: ctx.workspaceId,
+      createdByWorkspaceUserId: ctx.workspaceUserId,
+      ownerWorkspaceUserId: body.ownerWorkspaceUserId ?? ctx.workspaceUserId,
+      name: body.name,
+      cronExpression: body.cronExpression,
+      timezone: body.timezone,
+      maxRuns: body.maxRuns ?? null,
+      ...(body.priority !== undefined ? { priority: body.priority } : {}),
+      ...(body.partitionKey !== undefined ? { partitionKey: body.partitionKey } : {}),
+      ...(body.rateLimitKey !== undefined ? { rateLimitKey: body.rateLimitKey } : {}),
+    });
+    res.status(201).json({ rule });
+  }),
+);
+
+/** GET /recurrence-rules — list all rules for the workspace */
+queueRouter.get(
+  '/recurrence-rules',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const rules = await queueRecurrenceService.listRules(ctx.workspaceId);
+    res.status(200).json({ rules });
+  }),
+);
+
+/** GET /recurrence-rules/:ruleId — retrieve a single rule */
+queueRouter.get(
+  '/recurrence-rules/:ruleId',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { ruleId } = recurrenceRuleParamSchema.parse(req.params);
+    const rule = await queueRecurrenceService.getRule(ruleId, ctx.workspaceId);
+    if (!rule) {
+      res.status(404).json({ error: 'Recurrence rule not found' });
+      return;
+    }
+    res.status(200).json({ rule });
+  }),
+);
+
+/** POST /recurrence-rules/:ruleId/pause — disable a rule */
+queueRouter.post(
+  '/recurrence-rules/:ruleId/pause',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { ruleId } = recurrenceRuleParamSchema.parse(req.params);
+    const rule = await queueRecurrenceService.pauseRule(ruleId, ctx.workspaceId);
+    res.status(200).json({ rule });
+  }),
+);
+
+/** POST /recurrence-rules/:ruleId/resume — re-enable a rule */
+queueRouter.post(
+  '/recurrence-rules/:ruleId/resume',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { ruleId } = recurrenceRuleParamSchema.parse(req.params);
+    const rule = await queueRecurrenceService.resumeRule(ruleId, ctx.workspaceId);
+    res.status(200).json({ rule });
   }),
 );

@@ -25,6 +25,8 @@ export interface CreateQueueItemInput {
   sourceSlackThreadTs?: string | null;
   sourceSlackPermalink?: string | null;
   rankingTimestamp?: Date;
+  /** Phase 3C — links a spawned item back to its recurrence rule. */
+  recurrenceRuleId?: string | null;
 }
 
 /** Mutable fields of a queue item that may be changed after creation. */
@@ -219,6 +221,9 @@ export class QueueItemRepository {
           ...(input.rankingTimestamp === undefined
             ? {}
             : { rankingTimestamp: input.rankingTimestamp }),
+          ...(input.recurrenceRuleId !== undefined
+            ? { recurrenceRuleId: input.recurrenceRuleId }
+            : {}),
         },
       });
     });

@@ -106,3 +106,24 @@ export const failSchema = z.object({
 export const requeueDeadLetterSchema = z.object({
   permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
 });
+
+// ---------------------------------------------------------------------------
+// Phase 3C — Recurrence rules
+// ---------------------------------------------------------------------------
+
+/** Body for creating a recurring cron rule. */
+export const createRecurrenceRuleSchema = z.object({
+  name: z.string().min(1).max(255),
+  cronExpression: z.string().min(1),
+  timezone: z.string().default('UTC'),
+  ownerWorkspaceUserId: z.string().min(1).optional(),
+  maxRuns: z.number().int().positive().optional(),
+  priority: queuePrioritySchema.optional(),
+  partitionKey: z.string().max(255).optional(),
+  rateLimitKey: z.string().max(255).optional(),
+});
+
+/** Route param for a recurrence rule id. */
+export const recurrenceRuleParamSchema = z.object({
+  ruleId: z.string().min(1),
+});

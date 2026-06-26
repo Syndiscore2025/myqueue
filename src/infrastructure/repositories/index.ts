@@ -59,3 +59,10 @@ export {
   workerRegistryRepository,
   type RegisterWorkerParams,
 } from './worker-registry-repository';
+export {
+  QueueRecurrenceRepository,
+  queueRecurrenceRepository,
+  type CreateRecurrenceRuleInput,
+  type UpdateRecurrenceRuleInput,
+  type DueRecurrenceRule,
+} from './queue-recurrence-repository';
