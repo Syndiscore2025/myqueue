@@ -18,7 +18,7 @@
 │   │   ├── errors/               # ApplicationError hierarchy
 │   │   └── queue/                # Pure queue rules: ranking, status machine, priority
 │   ├── application/
-│   │   └── queue/                # QueueService use-case orchestration
+│   │   └── queue/                # Queue use cases: service + claim/recovery/retry/DLQ/registry/statistics + events
 │   ├── infrastructure/
 │   │   ├── database/prisma.ts    # Prisma client + health
 │   │   ├── redis/redis.ts        # Redis connections + health
@@ -30,11 +30,11 @@
 │   │       ├── app.ts            # Express app assembly (+ Slack receiver mount)
 │   │       ├── openapi.ts        # OpenAPI document (from Zod)
 │   │       ├── middleware/       # security, logging, rate limit, errors, workspace context
-│   │       └── routes/           # health (/health,/ready,/version) + /api/v1/queue
+│   │       └── routes/           # health + /api/v1/queue (incl. processing) + /api/v1/workers
 │   ├── queues/
 │   │   └── queue-manager.ts      # BullMQ queue/worker registry
 │   ├── workers/
-│   │   └── index.ts              # Worker process entrypoint
+│   │   └── index.ts              # Worker process entrypoint (runs the queue recovery loop)
 │   ├── utils/
 │   │   ├── logger.ts             # Pino logger
 │   │   ├── async-handler.ts      # Express async wrapper
@@ -60,11 +60,11 @@
 | ------------------ | --------------------------------------------------------- |
 | `config/`          | Environment validation and application metadata.          |
 | `domain/`          | Framework-free business model and errors (queue rules).   |
-| `application/`     | Use-case orchestration (e.g. the queue service).          |
+| `application/`     | Use-case orchestration (queue service + processing engine).|
 | `infrastructure/`  | Adapters to external systems (DB, Redis, integrations).   |
 | `interfaces/http/` | HTTP delivery: Express app, routes, middleware, OpenAPI.  |
 | `queues/`          | BullMQ queue and worker management.                       |
-| `workers/`         | Background worker process bootstrap.                      |
+| `workers/`         | Background worker bootstrap + queue recovery loop.        |
 | `utils/`           | Cross-cutting helpers shared across layers.               |
 
 ## Conventions

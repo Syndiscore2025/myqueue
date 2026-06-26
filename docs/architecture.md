@@ -33,7 +33,9 @@ business logic testable and framework-agnostic.
 The codebase produces two long-running processes from one image:
 
 - **API** (`src/server.ts`) — serves HTTP traffic.
-- **Worker** (`src/workers/index.ts`) — runs BullMQ workers (none in Phase 1).
+- **Worker** (`src/workers/index.ts`) — runs the queue **recovery loop** (Phase
+  3B), which periodically reclaims expired-lock items so abandoned work re-enters
+  the queue, alongside the BullMQ worker registry.
 
 Both share configuration, logging, datastore clients, and the graceful-shutdown
 lifecycle, so they behave consistently and scale independently.
@@ -69,11 +71,18 @@ and logs it with the request id.
 
 ## Queue engine
 
-The Phase 3A queue engine is the first full vertical slice through these layers:
-pure ranking/lifecycle rules in `domain/queue`, tenant-scoped persistence in
-`infrastructure/repositories`, orchestration in the `application` queue service,
-and an internal `/api/v1/queue` surface in `interfaces/http`. See
-[queue-engine.md](./queue-engine.md) for its mechanics, API, and limitations.
+The queue engine is the first full vertical slice through these layers: pure
+ranking/lifecycle rules in `domain/queue`, tenant-scoped persistence in
+`infrastructure/repositories`, orchestration in the `application` queue services,
+and an internal `/api/v1/queue` surface in `interfaces/http`.
+
+Phase 3A delivers the passive scheduling engine; **Phase 3B** adds an active
+processing layer — claim/heartbeat/recovery/retry/DLQ services, a worker registry,
+and statistics — so multiple workers process the queue concurrently with no
+duplicate execution. Concurrency is enforced in the data layer via
+`FOR UPDATE SKIP LOCKED` rather than application locks. See
+[queue-engine.md](./queue-engine.md) for its mechanics, API, concurrency
+guarantees, and limitations.
 
 ## Future service extraction
 

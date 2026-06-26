@@ -27,6 +27,8 @@ tests/
   integration/
     http.test.ts                    # /health, /ready, /version, error envelope
     queue-routes.test.ts            # /api/v1/queue surface + tenant guard
+    queue-concurrency.test.ts       # 2/5/20/100-worker correctness (gated)
+    queue-performance.test.ts       # claim/recovery/statistics benchmarks (gated)
     redis.connection.test.ts        # live Redis PING (gated)
     prisma.connection.test.ts       # live PostgreSQL query (gated)
 ```
@@ -39,6 +41,14 @@ tests/
 - **Connectivity tests** (`*.connection.test.ts`) require a live PostgreSQL and
   Redis. They are **skipped by default** and only run when
   `RUN_INTEGRATION=true`.
+- **Queue concurrency & performance tests** (`queue-concurrency.test.ts`,
+  `queue-performance.test.ts`) require a live PostgreSQL with the queue schema
+  migrated and are likewise gated by `RUN_INTEGRATION=true`. The concurrency suite
+  verifies the Phase 3B guarantees (no duplicate processing, no lost items,
+  correct recovery and retry/DLQ) across 2 / 5 / 20 / 100 workers. The performance
+  suite measures latency over a **bounded sample** at 1k/10k depth so it runs fast
+  anywhere; authoritative large-scale numbers are captured separately on an
+  isolated/staging database, never against production.
 
 Run the connectivity tests locally against the dev datastores:
 
