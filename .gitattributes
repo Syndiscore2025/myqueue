@@ -1,0 +1,13 @@
+# Normalize line endings to LF in the repository and enforce LF in working
+# trees on every platform. This keeps Prettier (endOfLine: "lf") green on
+# Windows checkouts where core.autocrlf would otherwise produce CRLF.
+* text=auto eol=lf
+
+# Treat common binary assets as binary so they are never line-ending normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

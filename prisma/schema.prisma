@@ -49,6 +49,10 @@ model Workspace {
   users        WorkspaceUser[]
   auditLogs    WorkspaceAuditLog[]
 
+  queueItems    QueueItem[]
+  queueEvents   QueueEvent[]
+  queueSettings WorkspaceQueueSettings?
+
   @@map("workspaces")
 }
 
@@ -146,4 +150,209 @@ model WorkspaceAuditLog {
 
   @@index([workspaceId, createdAt])
   @@map("workspace_audit_logs")
+}
+
+// ============================================================================
+// Phase 3A — Queue domain
+//
+// The core MyQueue engine. Every queue row is tenant-scoped by workspaceId and
+// owned by a WorkspaceUser (referenced by id; actor/owner ids are plain columns
+// following the Phase 2 audit-log precedent). Each item carries a PERMANENT,
+// per-workspace identifier (e.g. MQ-000842) that never changes; the visible
+// "#position" is computed dynamically by the ranking engine and is never stored
+// as identity.
+// ============================================================================
+
+/// Lifecycle state of a queue item. Exact set defined by the product spec.
+enum QueueStatus {
+  New
+  Working
+  Waiting
+  FollowUp
+  Snoozed
+  Done
+  Archived
+}
+
+/// Urgency of a queue item. Red = urgent, Yellow = needs attention, Green = low.
+enum QueuePriority {
+  Red
+  Yellow
+  Green
+}
+
+/// How an owner's active queue is ordered.
+enum QueueRankingMode {
+  FIFO
+  PRIORITY
+}
+
+/// Origin of a queue item. Slack sources are wired in later phases; the columns
+/// exist now so items can be created from any source without a schema change.
+enum QueueSourceType {
+  SLACK_MESSAGE
+  SLACK_COMMAND
+  MANUAL
+  API
+}
+
+/// Auditable queue actions recorded in the append-only QueueEvent log.
+enum QueueEventType {
+  CREATED
+  ASSIGNED
+  REASSIGNED
+  PRIORITY_CHANGED
+  STATUS_CHANGED
+  MOVED_TO_WAITING
+  MOVED_TO_FOLLOW_UP
+  SNOOZED
+  UNSNOOZED
+  COMPLETED
+  ARCHIVED
+  RECALCULATED
+}
+
+/// Per-workspace queue configuration plus the monotonic counter used to mint
+/// permanent queue ids. lastQueueSeq is incremented atomically when an item is
+/// created so ids are unique and gap-deterministic per workspace.
+model WorkspaceQueueSettings {
+  id                     String           @id @default(cuid())
+  workspaceId            String           @unique @map("workspace_id")
+  rankingMode            QueueRankingMode @default(FIFO) @map("ranking_mode")
+  includeWaitingInActive Boolean          @default(false) @map("include_waiting_in_active")
+  includeWorkingInActive Boolean          @default(true) @map("include_working_in_active")
+  lastQueueSeq           Int              @default(0) @map("last_queue_seq")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_queue_settings")
+}
+
+/// A single tracked work item in a user's queue.
+model QueueItem {
+  id                     String          @id @default(cuid())
+  workspaceId            String          @map("workspace_id")
+  permanentQueueId       String          @map("permanent_queue_id")
+  ownerWorkspaceUserId   String          @map("owner_workspace_user_id")
+  creatorWorkspaceUserId String?         @map("creator_workspace_user_id")
+  sourceType             QueueSourceType @default(MANUAL) @map("source_type")
+  sourceSlackChannelId   String?         @map("source_slack_channel_id")
+  sourceSlackMessageTs   String?         @map("source_slack_message_ts")
+  sourceSlackThreadTs    String?         @map("source_slack_thread_ts")
+  sourceSlackPermalink   String?         @map("source_slack_permalink")
+  title                  String
+  summary                String?
+  status                 QueueStatus     @default(New)
+  priority               QueuePriority   @default(Green)
+  rankingTimestamp       DateTime        @default(now()) @map("ranking_timestamp")
+  snoozedUntil           DateTime?       @map("snoozed_until")
+  followUpDueAt          DateTime?       @map("follow_up_due_at")
+  assignedAt             DateTime?       @map("assigned_at")
+  completedAt            DateTime?       @map("completed_at")
+  archivedAt             DateTime?       @map("archived_at")
+  createdAt              DateTime        @default(now()) @map("created_at")
+  updatedAt              DateTime        @updatedAt @map("updated_at")
+
+  workspace       Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  statusHistory   QueueStatusHistory[]
+  priorityHistory QueuePriorityHistory[]
+  assignments     QueueAssignment[]
+  events          QueueEvent[]
+  positions       QueuePositionSnapshot[]
+
+  @@unique([workspaceId, permanentQueueId])
+  @@index([workspaceId, ownerWorkspaceUserId, status])
+  @@index([workspaceId, ownerWorkspaceUserId, priority, rankingTimestamp])
+  @@map("queue_items")
+}
+
+/// Append-only history of status transitions for a queue item.
+model QueueStatusHistory {
+  id                   String       @id @default(cuid())
+  workspaceId          String       @map("workspace_id")
+  queueItemId          String       @map("queue_item_id")
+  fromStatus           QueueStatus? @map("from_status")
+  toStatus             QueueStatus  @map("to_status")
+  actorWorkspaceUserId String?      @map("actor_workspace_user_id")
+  createdAt            DateTime     @default(now()) @map("created_at")
+
+  queueItem QueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, queueItemId, createdAt])
+  @@map("queue_status_history")
+}
+
+/// Append-only history of priority changes (automatic or manual) for an item.
+model QueuePriorityHistory {
+  id                   String         @id @default(cuid())
+  workspaceId          String         @map("workspace_id")
+  queueItemId          String         @map("queue_item_id")
+  fromPriority         QueuePriority? @map("from_priority")
+  toPriority           QueuePriority  @map("to_priority")
+  source               String
+  reason               String?
+  automatic            Boolean        @default(false)
+  actorWorkspaceUserId String?        @map("actor_workspace_user_id")
+  createdAt            DateTime       @default(now()) @map("created_at")
+
+  queueItem QueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, queueItemId, createdAt])
+  @@map("queue_priority_history")
+}
+
+/// Append-only history of ownership assignments for a queue item.
+model QueueAssignment {
+  id                           String   @id @default(cuid())
+  workspaceId                  String   @map("workspace_id")
+  queueItemId                  String   @map("queue_item_id")
+  previousOwnerWorkspaceUserId String?  @map("previous_owner_workspace_user_id")
+  ownerWorkspaceUserId         String   @map("owner_workspace_user_id")
+  assignedByWorkspaceUserId    String?  @map("assigned_by_workspace_user_id")
+  createdAt                    DateTime @default(now()) @map("created_at")
+
+  queueItem QueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, queueItemId, createdAt])
+  @@map("queue_assignments")
+}
+
+/// Append-only audit trail of queue events, scoped per workspace. queueItemId is
+/// nullable so queue-wide events (e.g. RECALCULATED) can be recorded.
+model QueueEvent {
+  id                   String         @id @default(cuid())
+  workspaceId          String         @map("workspace_id")
+  queueItemId          String?        @map("queue_item_id")
+  actorWorkspaceUserId String?        @map("actor_workspace_user_id")
+  eventType            QueueEventType @map("event_type")
+  previousValue        String?        @map("previous_value")
+  newValue             String?        @map("new_value")
+  metadata             Json?
+  createdAt            DateTime       @default(now()) @map("created_at")
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  queueItem QueueItem? @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, queueItemId, createdAt])
+  @@map("queue_events")
+}
+
+/// Snapshot of an owner's computed queue positions at a point in time. Captured
+/// on recalculation so dynamic positions can be audited/diffed historically.
+model QueuePositionSnapshot {
+  id                   String           @id @default(cuid())
+  workspaceId          String           @map("workspace_id")
+  ownerWorkspaceUserId String           @map("owner_workspace_user_id")
+  queueItemId          String           @map("queue_item_id")
+  position             Int
+  rankingMode          QueueRankingMode @map("ranking_mode")
+  createdAt            DateTime         @default(now()) @map("created_at")
+
+  queueItem QueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, ownerWorkspaceUserId, createdAt])
+  @@map("queue_position_snapshots")
 }
