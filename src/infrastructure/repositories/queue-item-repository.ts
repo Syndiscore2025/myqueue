@@ -86,6 +86,24 @@ export interface RecoveredItem {
   previousWorkerId: string | null;
 }
 
+/**
+ * A queue item that was activated by the scheduler sweep (Snoozed -> New),
+ * carrying only the fields required for auditing and event emission.
+ */
+export interface ActivatedItem {
+  id: string;
+  workspaceId: string;
+  permanentQueueId: string;
+}
+
+/** Inputs for a single batch scheduler activation sweep. */
+export interface ActivateDueSnoozedParams {
+  /** Maximum number of due-snoozed rows to activate in this sweep. */
+  batchSize: number;
+  /** Clock instant used as the "now" threshold; defaults to new Date(). */
+  now?: Date;
+}
+
 /** Inputs for a single batch recovery sweep. */
 export interface RecoverExpiredParams {
   /** Maximum number of expired-lock rows to reclaim in this sweep. */
@@ -478,6 +496,40 @@ export class QueueItemRepository {
       where.ownerWorkspaceUserId = ownerWorkspaceUserId;
     }
     return this.prisma.queueItem.findMany({ where, orderBy: { scheduledFor: 'asc' } });
+  }
+
+  /**
+   * Atomically activate all `Snoozed` items whose `available_at` has passed,
+   * returning them to `New` and recording the activation reason. Uses a CTE with
+   * `FOR UPDATE SKIP LOCKED` so concurrent activation sweeps never double-activate
+   * the same row. Returns the activated items so the caller can audit each one.
+   */
+  async activateDueSnoozed(params: ActivateDueSnoozedParams): Promise<ActivatedItem[]> {
+    const now = params.now ?? new Date();
+    return this.prisma.$queryRaw<ActivatedItem[]>(Prisma.sql`
+      WITH due AS (
+        SELECT "id"
+        FROM "queue_items"
+        WHERE "status" = CAST(${QueueStatus.Snoozed} AS "QueueStatus")
+          AND "available_at" IS NOT NULL
+          AND "available_at" <= ${now}
+        ORDER BY "available_at" ASC
+        LIMIT ${params.batchSize}
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE "queue_items" q
+      SET "status" = CAST(${QueueStatus.New} AS "QueueStatus"),
+          "snoozed_until" = NULL,
+          "available_at" = NULL,
+          "activation_reason" = CAST('SNOOZED' AS "QueueActivationReason"),
+          "updated_at" = now()
+      FROM due
+      WHERE q."id" = due."id"
+      RETURNING
+        q."id",
+        q."workspace_id" AS "workspaceId",
+        q."permanent_queue_id" AS "permanentQueueId"
+    `);
   }
 
   /** List a workspace's dead-lettered items, oldest dead-lettered first. */

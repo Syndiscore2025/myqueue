@@ -25,7 +25,13 @@ export {
   type QueueItemFailedEvent,
   type RetryScheduledEvent,
   type DeadLetterCreatedEvent,
+  type QueueItemActivatedEvent,
 } from './processing-events';
+export {
+  QueueActivationService,
+  queueActivationService,
+  type QueueActivationServiceDeps,
+} from './queue-activation-service';
 export {
   QueueRecoveryService,
   queueRecoveryService,

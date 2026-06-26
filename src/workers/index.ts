@@ -3,22 +3,23 @@ import { registerShutdownHandlers } from '../utils/process-lifecycle';
 import { connectRedis, disconnectRedis } from '../infrastructure/redis/redis';
 import { connectDatabase, disconnectDatabase } from '../infrastructure/database/prisma';
 import { queueManager } from '../queues';
-import { queueRecoveryService } from '../application/queue';
+import { queueActivationService, queueRecoveryService } from '../application/queue';
 
 /**
  * Background worker process entrypoint.
  *
- * Phase 3B: starts the queue recovery loop which sweeps for expired
- * `Processing` items on a configurable interval (QUEUE_RECOVERY_INTERVAL),
- * returning abandoned work to `New` so it can be claimed again.
+ * Phase 3B: starts the queue recovery loop (expired Processing -> New).
+ * Phase 3C: starts the queue activation loop (due Snoozed -> New via availableAt).
  */
 async function bootstrap(): Promise<void> {
   await Promise.allSettled([connectDatabase(), connectRedis()]);
 
   queueRecoveryService.start();
-  logger.info('worker runtime started with queue recovery loop');
+  queueActivationService.start();
+  logger.info('worker runtime started with queue recovery and activation loops');
 
   registerShutdownHandlers(async () => {
+    queueActivationService.stop();
     queueRecoveryService.stop();
     await queueManager.closeAll();
     await disconnectRedis();

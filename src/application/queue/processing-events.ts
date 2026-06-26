@@ -85,6 +85,18 @@ export interface DeadLetterCreatedEvent extends ProcessingEventBase {
   readonly error: string | null;
 }
 
+/**
+ * Emitted when the scheduler activation sweep wakes an item from a time-gated
+ * state (Snoozed -> New) because its `availableAt` has passed.
+ */
+export interface QueueItemActivatedEvent extends ProcessingEventBase {
+  readonly type: 'QueueItemActivated';
+  readonly queueItemId: string;
+  readonly permanentQueueId: string;
+  /** Why the scheduler moved this item back to claimable state. */
+  readonly activationReason: string;
+}
+
 /** Discriminated union of all queue processing events (extended per slice). */
 export type QueueProcessingEvent =
   | QueueItemClaimedEvent
@@ -93,7 +105,8 @@ export type QueueProcessingEvent =
   | QueueItemReleasedEvent
   | QueueItemFailedEvent
   | RetryScheduledEvent
-  | DeadLetterCreatedEvent;
+  | DeadLetterCreatedEvent
+  | QueueItemActivatedEvent;
 
 /** Publishes internal queue processing events to interested observers. */
 export interface EventPublisher {
