@@ -405,6 +405,36 @@ export class QueueService {
     });
   }
 
+  /** List an owner's in-progress (working) items. */
+  async getWorkingQueue(
+    ctx: QueueContext,
+    ownerWorkspaceUserId: string = ctx.workspaceUserId,
+  ): Promise<QueueItem[]> {
+    return this.items.listByOwner(ctx.workspaceId, ownerWorkspaceUserId, {
+      statuses: [QueueStatus.Working],
+    });
+  }
+
+  /** List an owner's snoozed items. */
+  async getSnoozedQueue(
+    ctx: QueueContext,
+    ownerWorkspaceUserId: string = ctx.workspaceUserId,
+  ): Promise<QueueItem[]> {
+    return this.items.listByOwner(ctx.workspaceId, ownerWorkspaceUserId, {
+      statuses: [QueueStatus.Snoozed],
+    });
+  }
+
+  /** List an owner's archived items. */
+  async getArchive(
+    ctx: QueueContext,
+    ownerWorkspaceUserId: string = ctx.workspaceUserId,
+  ): Promise<QueueItem[]> {
+    return this.items.listByOwner(ctx.workspaceId, ownerWorkspaceUserId, {
+      statuses: [QueueStatus.Archived],
+    });
+  }
+
   /** List an owner's items completed since the start of the current day. */
   async getCompletedToday(
     ctx: QueueContext,

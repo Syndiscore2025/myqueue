@@ -86,7 +86,11 @@ export function buildQueueBlocks(view: QueueView, items: readonly QueueItemView[
   return blocks;
 }
 
-/** Wrap the queue blocks as an App Home (`home`) view payload. */
+/**
+ * Wrap the queue blocks as an App Home (`home`) view payload. The active view is
+ * stored in `private_metadata` so interaction handlers can re-render the same
+ * view after an action without tracking client state.
+ */
 export function buildAppHomeView(view: QueueView, items: readonly QueueItemView[]): HomeView {
-  return { type: 'home', blocks: buildQueueBlocks(view, items) };
+  return { type: 'home', private_metadata: view, blocks: buildQueueBlocks(view, items) };
 }

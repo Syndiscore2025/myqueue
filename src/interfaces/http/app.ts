@@ -2,6 +2,7 @@ import express, { type Application } from 'express';
 import swaggerUi from 'swagger-ui-express';
 import { env, slackConfigured } from '../../config';
 import { getSlackApp } from '../../infrastructure/slack';
+import { registerSlackHandlers } from '../slack/register';
 import { logger } from '../../utils/logger';
 import {
   compressionMiddleware,
@@ -43,7 +44,8 @@ export function createApp(): Application {
   // mounted when Slack credentials are present (e.g. omitted in infra-only or
   // test environments).
   if (slackConfigured) {
-    const { receiver } = getSlackApp();
+    const { app: slackApp, receiver } = getSlackApp();
+    registerSlackHandlers(slackApp);
     app.use(receiver.router);
     logger.info('Slack surface mounted (events, install, oauth_redirect)');
   }
