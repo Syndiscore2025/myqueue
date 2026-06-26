@@ -21,8 +21,12 @@ tests/
   unit/
     env.test.ts                     # environment validation
     errors.test.ts                  # ApplicationError hierarchy
+    queue-ranking-engine.test.ts    # ranking, status machine, priority rules
+    repositories.test.ts            # tenant-scoped queue repositories
+    queue-service.test.ts           # queue application use cases
   integration/
     http.test.ts                    # /health, /ready, /version, error envelope
+    queue-routes.test.ts            # /api/v1/queue surface + tenant guard
     redis.connection.test.ts        # live Redis PING (gated)
     prisma.connection.test.ts       # live PostgreSQL query (gated)
 ```

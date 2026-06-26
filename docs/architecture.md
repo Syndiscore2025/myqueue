@@ -8,7 +8,7 @@ services without rewrites.
 
 ```
 interfaces/      HTTP delivery: Express app, routes, middleware, OpenAPI
-application/      Use cases / orchestration (added in later phases)
+application/      Use cases / orchestration (e.g. the queue service)
 domain/           Pure business model: entities, errors, value objects
 infrastructure/   External systems: Prisma (DB), Redis, integrations
 ```
@@ -66,6 +66,14 @@ and logs it with the request id.
 - **Redis** backs both the application cache client and BullMQ. BullMQ requires
   dedicated connections (`maxRetriesPerRequest: null`), which the
   infrastructure layer provides via `createBullConnection`.
+
+## Queue engine
+
+The Phase 3A queue engine is the first full vertical slice through these layers:
+pure ranking/lifecycle rules in `domain/queue`, tenant-scoped persistence in
+`infrastructure/repositories`, orchestration in the `application` queue service,
+and an internal `/api/v1/queue` surface in `interfaces/http`. See
+[queue-engine.md](./queue-engine.md) for its mechanics, API, and limitations.
 
 ## Future service extraction
 

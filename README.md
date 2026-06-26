@@ -3,12 +3,16 @@
 Production backend platform for **MyQueue** — a SaaS application that will
 eventually ship as a Slack Marketplace app.
 
-This repository contains the **Phase 1** foundation: an enterprise-ready,
-strictly-typed Node.js/TypeScript backend with PostgreSQL (Prisma), Redis,
-BullMQ, structured logging, centralized error handling, security middleware,
-health/readiness/version endpoints, OpenAPI docs, Docker packaging, a full test
-suite, and CI/CD. There is **no Slack or business functionality yet** — only the
-permanent infrastructure that later phases build on.
+It builds up in phases on a strictly-typed Node.js/TypeScript backend with
+PostgreSQL (Prisma), Redis, BullMQ, structured logging, centralized error
+handling, security middleware, health/readiness/version endpoints, OpenAPI docs,
+Docker packaging, a full test suite, and CI/CD:
+
+- **Phase 1** — the permanent infrastructure foundation.
+- **Phase 2** — Slack Marketplace foundation: multi-tenant OAuth/install.
+- **Phase 3A** — the queue engine: domain models, ranking & position engine, and
+  an internal `/api/v1/queue` API (see
+  [docs/queue-engine.md](docs/queue-engine.md)).
 
 ## Tech stack
 
@@ -73,6 +77,7 @@ This starts the API, a background worker, PostgreSQL, and Redis. See
 
 - [Getting Started](docs/getting-started.md)
 - [Architecture Overview](docs/architecture.md)
+- [Queue Engine (Phase 3A)](docs/queue-engine.md)
 - [Local Development Guide](docs/local-development.md)
 - [Docker Guide](docs/docker.md)
 - [Environment Guide](docs/environment.md)

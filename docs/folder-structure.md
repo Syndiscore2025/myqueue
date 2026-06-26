@@ -5,7 +5,7 @@
 ├── .github/workflows/ci.yml      # CI: lint, typecheck, test, build, docker
 ├── docs/                         # Project documentation
 ├── prisma/
-│   ├── schema.prisma             # Datasource + multi-tenant Slack models
+│   ├── schema.prisma             # Datasource + multi-tenant Slack & queue models
 │   └── migrations/               # SQL migrations
 ├── scripts/
 │   └── clean.mjs                 # Build/coverage cleanup
@@ -15,20 +15,22 @@
 │   │   ├── index.ts              # Validated, frozen config singleton
 │   │   └── app-info.ts           # Name/version from package.json
 │   ├── domain/
-│   │   └── errors/               # ApplicationError hierarchy
-│   ├── application/              # Use cases (added in later phases)
+│   │   ├── errors/               # ApplicationError hierarchy
+│   │   └── queue/                # Pure queue rules: ranking, status machine, priority
+│   ├── application/
+│   │   └── queue/                # QueueService use-case orchestration
 │   ├── infrastructure/
 │   │   ├── database/prisma.ts    # Prisma client + health
 │   │   ├── redis/redis.ts        # Redis connections + health
 │   │   ├── crypto/               # AES-256-GCM TokenService (token encryption)
-│   │   ├── repositories/         # Tenant-scoped Prisma repositories
+│   │   ├── repositories/         # Tenant-scoped Prisma repositories (incl. queue)
 │   │   └── slack/                # Bolt app, InstallationStore, StateStore
 │   ├── interfaces/
 │   │   └── http/
 │   │       ├── app.ts            # Express app assembly (+ Slack receiver mount)
 │   │       ├── openapi.ts        # OpenAPI document (from Zod)
-│   │       ├── middleware/       # security, logging, rate limit, errors
-│   │       └── routes/health.ts  # /health, /ready, /version
+│   │       ├── middleware/       # security, logging, rate limit, errors, workspace context
+│   │       └── routes/           # health (/health,/ready,/version) + /api/v1/queue
 │   ├── queues/
 │   │   └── queue-manager.ts      # BullMQ queue/worker registry
 │   ├── workers/
@@ -57,8 +59,8 @@
 | Directory          | Responsibility                                             |
 | ------------------ | --------------------------------------------------------- |
 | `config/`          | Environment validation and application metadata.          |
-| `domain/`          | Framework-free business model and errors.                 |
-| `application/`     | Use-case orchestration (populated in later phases).       |
+| `domain/`          | Framework-free business model and errors (queue rules).   |
+| `application/`     | Use-case orchestration (e.g. the queue service).          |
 | `infrastructure/`  | Adapters to external systems (DB, Redis, integrations).   |
 | `interfaces/http/` | HTTP delivery: Express app, routes, middleware, OpenAPI.  |
 | `queues/`          | BullMQ queue and worker management.                       |
