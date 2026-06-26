@@ -47,6 +47,21 @@ export const envSchema = z.object({
   // Interval, in seconds, between background recovery sweeps.
   QUEUE_RECOVERY_INTERVAL: z.coerce.number().int().positive().default(60),
 
+  // --- Queue scheduling & orchestration (Phase 3C) ---
+  // Interval, in seconds, between scheduler activation sweeps. The scheduler
+  // wakes delayed/scheduled/snoozed/unblocked items whose available_at <= now().
+  QUEUE_SCHEDULER_INTERVAL_SECONDS: z.coerce.number().int().positive().default(10),
+  // Maximum items the activation sweep moves to claimable state per tick.
+  QUEUE_ACTIVATION_BATCH_SIZE: z.coerce.number().int().positive().default(500),
+  // Maximum recurring rules the recurrence sweep processes per tick.
+  QUEUE_RECURRENCE_BATCH_SIZE: z.coerce.number().int().positive().default(100),
+  // Default sliding-window duration (seconds) for a rate-limit bucket when not
+  // specified at item creation time.
+  QUEUE_RATE_LIMIT_DEFAULT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+  // Default max items allowed per window for a rate-limit bucket when not
+  // specified at item creation time.
+  QUEUE_RATE_LIMIT_DEFAULT_MAX_ITEMS: z.coerce.number().int().positive().default(100),
+
   SLACK_CLIENT_ID: z.string().default(''),
   SLACK_CLIENT_SECRET: z.string().default(''),
   SLACK_SIGNING_SECRET: z.string().default(''),

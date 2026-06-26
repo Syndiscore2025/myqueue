@@ -21,6 +21,7 @@ function item(permanentQueueId: string, overrides: Partial<RankableItem> = {}): 
     status: overrides.status ?? QueueStatus.New,
     priority: overrides.priority ?? QueuePriority.Green,
     rankingTimestamp: overrides.rankingTimestamp ?? new Date('2026-01-01T00:00:00.000Z'),
+    availableAt: overrides.availableAt ?? null,
   };
 }
 

@@ -55,6 +55,7 @@ export type QueueSourceType = (typeof QueueSourceType)[keyof typeof QueueSourceT
  * Auditable queue actions recorded in the append-only event log.
  *
  * The trailing members are Phase 3B processing-lifecycle actions (additive).
+ * Phase 3C adds scheduling/orchestration actions (additive).
  */
 export const QueueEventType = {
   CREATED: 'CREATED',
@@ -76,6 +77,18 @@ export const QueueEventType = {
   RETRY_SCHEDULED: 'RETRY_SCHEDULED',
   DEAD_LETTERED: 'DEAD_LETTERED',
   REQUEUED: 'REQUEUED',
+  // Phase 3C — scheduling & orchestration
+  DELAYED: 'DELAYED',
+  SCHEDULED: 'SCHEDULED',
+  ACTIVATED: 'ACTIVATED',
+  RECURRENCE_CREATED: 'RECURRENCE_CREATED',
+  RECURRENCE_PAUSED: 'RECURRENCE_PAUSED',
+  RECURRENCE_RESUMED: 'RECURRENCE_RESUMED',
+  RECURRENCE_DISABLED: 'RECURRENCE_DISABLED',
+  RECURRING_ITEM_CREATED: 'RECURRING_ITEM_CREATED',
+  RATE_LIMITED: 'RATE_LIMITED',
+  DEPENDENCY_BLOCKED: 'DEPENDENCY_BLOCKED',
+  DEPENDENCY_UNBLOCKED: 'DEPENDENCY_UNBLOCKED',
 } as const;
 export type QueueEventType = (typeof QueueEventType)[keyof typeof QueueEventType];
 
@@ -96,3 +109,29 @@ export const PRIORITY_RANK: Readonly<Record<QueuePriority, number>> = {
   [QueuePriority.Yellow]: 1,
   [QueuePriority.Green]: 2,
 };
+
+/**
+ * Why the scheduler moved an item back to claimable state. Mirrors the Prisma
+ * enum `QueueActivationReason` without importing any infrastructure.
+ */
+export const QueueActivationReason = {
+  SCHEDULED: 'SCHEDULED',
+  DELAYED: 'DELAYED',
+  SNOOZED: 'SNOOZED',
+  DEPENDENCY_RESOLVED: 'DEPENDENCY_RESOLVED',
+  RATE_LIMIT_CLEARED: 'RATE_LIMIT_CLEARED',
+  MANUAL: 'MANUAL',
+} as const;
+export type QueueActivationReason =
+  (typeof QueueActivationReason)[keyof typeof QueueActivationReason];
+
+/**
+ * How a dependent item reacts when its upstream dependency is dead-lettered.
+ * Mirrors the Prisma enum `QueueDependencyType`.
+ */
+export const QueueDependencyType = {
+  COMPLETE_REQUIRED: 'COMPLETE_REQUIRED',
+  FAIL_IF_DEPENDENCY_FAILS: 'FAIL_IF_DEPENDENCY_FAILS',
+  CONTINUE_IF_DEPENDENCY_FAILS: 'CONTINUE_IF_DEPENDENCY_FAILS',
+} as const;
+export type QueueDependencyType = (typeof QueueDependencyType)[keyof typeof QueueDependencyType];

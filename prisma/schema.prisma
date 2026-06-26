@@ -208,6 +208,9 @@ enum QueueSourceType {
 /// Phase 3B adds processing-lifecycle actions (additive): a worker claiming an
 /// item, releasing it, automatic recovery of an expired lock, a processing
 /// failure, a scheduled retry, dead-lettering, and requeueing from the DLQ.
+///
+/// Phase 3C adds scheduling/orchestration actions (additive): delay, schedule,
+/// activation, recurrence rule lifecycle, rate-limit, and dependency events.
 enum QueueEventType {
   CREATED
   ASSIGNED
@@ -228,6 +231,18 @@ enum QueueEventType {
   RETRY_SCHEDULED
   DEAD_LETTERED
   REQUEUED
+  // Phase 3C — scheduling & orchestration
+  DELAYED
+  SCHEDULED
+  ACTIVATED
+  RECURRENCE_CREATED
+  RECURRENCE_PAUSED
+  RECURRENCE_RESUMED
+  RECURRENCE_DISABLED
+  RECURRING_ITEM_CREATED
+  RATE_LIMITED
+  DEPENDENCY_BLOCKED
+  DEPENDENCY_UNBLOCKED
 }
 
 /// Liveness of a registered worker process within a workspace. `ACTIVE` workers
@@ -237,6 +252,24 @@ enum WorkerStatus {
   ACTIVE
   IDLE
   DEAD
+}
+
+/// Why a scheduled/delayed/snoozed item was moved back to claimable state.
+/// Recorded in QueueItem.activationReason and the ACTIVATED audit event.
+enum QueueActivationReason {
+  SCHEDULED
+  DELAYED
+  SNOOZED
+  DEPENDENCY_RESOLVED
+  RATE_LIMIT_CLEARED
+  MANUAL
+}
+
+/// How a dependent item reacts when its dependency reaches the Dead Letter Queue.
+enum QueueDependencyType {
+  COMPLETE_REQUIRED
+  FAIL_IF_DEPENDENCY_FAILS
+  CONTINUE_IF_DEPENDENCY_FAILS
 }
 
 /// Per-workspace queue configuration plus the monotonic counter used to mint
@@ -295,8 +328,24 @@ model QueueItem {
   failedAt              DateTime? @map("failed_at")
   deadLetteredAt        DateTime? @map("dead_lettered_at")
 
-  createdAt              DateTime        @default(now()) @map("created_at")
-  updatedAt              DateTime        @updatedAt @map("updated_at")
+  // Phase 3C — scheduling, orchestration, and partitioning.
+  // Single claim gate: a null value means "available immediately"; a future
+  // timestamp means the item is invisible to workers until that time passes.
+  // scheduledFor and delayUntil are human-readable source fields that feed into
+  // availableAt at creation / delay time.
+  availableAt             DateTime?              @map("available_at")
+  scheduledFor            DateTime?              @map("scheduled_for")
+  delayUntil              DateTime?              @map("delay_until")
+  blockedUntil            DateTime?              @map("blocked_until")
+  activationReason        QueueActivationReason? @map("activation_reason")
+  recurrenceRuleId        String?                @map("recurrence_rule_id")
+  parentRecurringItemId   String?                @map("parent_recurring_item_id")
+  rateLimitKey            String?                @map("rate_limit_key")
+  partitionKey            String?                @map("partition_key")
+  dependencyGroupId       String?                @map("dependency_group_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   workspace       Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   statusHistory   QueueStatusHistory[]
@@ -304,6 +353,9 @@ model QueueItem {
   assignments     QueueAssignment[]
   events          QueueEvent[]
   positions       QueuePositionSnapshot[]
+  recurrenceRule  QueueRecurrenceRule?    @relation(fields: [recurrenceRuleId], references: [id])
+  dependenciesOn  QueueDependency[]       @relation("DependentItem")
+  dependenciesOf  QueueDependency[]       @relation("DependencyItem")
 
   @@unique([workspaceId, permanentQueueId])
   @@index([workspaceId, ownerWorkspaceUserId, status])
@@ -312,6 +364,14 @@ model QueueItem {
   // recovery (status = Processing, lock_expires_at < now()).
   @@index([workspaceId, status, priority, rankingTimestamp])
   @@index([workspaceId, status, lockExpiresAt])
+  // Phase 3C — scheduler sweep indexes.
+  @@index([workspaceId, availableAt])
+  @@index([workspaceId, scheduledFor])
+  @@index([workspaceId, delayUntil])
+  @@index([workspaceId, partitionKey, status, priority, rankingTimestamp])
+  @@index([workspaceId, rateLimitKey])
+  @@index([workspaceId, dependencyGroupId])
+  @@index([recurrenceRuleId])
   @@map("queue_items")
 }
 
@@ -431,4 +491,76 @@ model WorkerRegistration {
   @@unique([workspaceId, workerId])
   @@index([workspaceId, status])
   @@map("worker_registrations")
+}
+
+// ============================================================================
+// Phase 3C — Scheduling, recurrence, rate-limiting, and dependencies
+//
+// These tables are additive; all Phase 3A/3B behavior is unchanged. New columns
+// on QueueItem are nullable and default to null for every existing row.
+// ============================================================================
+
+/// A recurring cron rule that generates new QueueItems on a schedule.
+/// Scheduler checks enabled rules; when next_run_at <= now() it spawns a child
+/// QueueItem and advances next_run_at using the cron expression + timezone.
+model QueueRecurrenceRule {
+  id              String        @id @default(cuid())
+  workspaceId     String        @map("workspace_id")
+  name            String
+  cronExpression  String        @map("cron_expression")
+  timezone        String        @default("UTC")
+  isEnabled       Boolean       @default(true) @map("is_enabled")
+  nextRunAt       DateTime?     @map("next_run_at")
+  lastRunAt       DateTime?     @map("last_run_at")
+  maxRuns         Int?          @map("max_runs")
+  runCount        Int           @default(0) @map("run_count")
+  payloadTemplate Json?         @map("payload_template")
+  priority        QueuePriority @default(Green)
+  partitionKey    String?       @map("partition_key")
+  rateLimitKey    String?       @map("rate_limit_key")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  items QueueItem[]
+
+  @@index([workspaceId, isEnabled, nextRunAt])
+  @@index([workspaceId])
+  @@map("queue_recurrence_rules")
+}
+
+/// Dependency edge: a queue item that cannot be claimed until another completes.
+/// dependencyType determines the reaction when the upstream item is dead-lettered.
+model QueueDependency {
+  id                    String               @id @default(cuid())
+  workspaceId           String               @map("workspace_id")
+  queueItemId           String               @map("queue_item_id")
+  dependsOnQueueItemId  String               @map("depends_on_queue_item_id")
+  dependencyType        QueueDependencyType  @default(COMPLETE_REQUIRED) @map("dependency_type")
+  createdAt             DateTime             @default(now()) @map("created_at")
+
+  queueItem      QueueItem @relation("DependentItem", fields: [queueItemId], references: [id], onDelete: Cascade)
+  dependsOnItem  QueueItem @relation("DependencyItem", fields: [dependsOnQueueItemId], references: [id], onDelete: Cascade)
+
+  @@unique([queueItemId, dependsOnQueueItemId])
+  @@index([workspaceId, queueItemId])
+  @@index([workspaceId, dependsOnQueueItemId])
+  @@map("queue_dependencies")
+}
+
+/// Sliding-window rate-limit bucket keyed by workspace + rateLimitKey.
+/// currentCount is reset lazily when now() > windowStartedAt + windowSeconds.
+model QueueRateLimitBucket {
+  id             String   @id @default(cuid())
+  workspaceId    String   @map("workspace_id")
+  rateLimitKey   String   @map("rate_limit_key")
+  windowSeconds  Int      @map("window_seconds")
+  maxItems       Int      @map("max_items")
+  currentCount   Int      @default(0) @map("current_count")
+  windowStartedAt DateTime @default(now()) @map("window_started_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([workspaceId, rateLimitKey])
+  @@index([workspaceId, rateLimitKey])
+  @@map("queue_rate_limit_buckets")
 }
