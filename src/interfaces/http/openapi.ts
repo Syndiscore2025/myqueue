@@ -151,8 +151,10 @@ registry.registerPath({
   path: '/slack/events',
   summary: 'Slack Events API endpoint',
   description:
-    'Receives Slack events, slash commands, and interactivity payloads. The raw ' +
-    'body is signature-verified against SLACK_SIGNING_SECRET before processing.',
+    'Receives Slack events (e.g. app_home_opened), slash commands (/myqueue), ' +
+    'message shortcuts (Add to MyQueue), and Block Kit interactivity payloads. ' +
+    'The raw body is signature-verified against SLACK_SIGNING_SECRET before ' +
+    'processing, and side-effecting interactions are idempotent across Slack retries.',
   tags: ['Slack'],
   request: { body: { content: json(SlackEventEnvelope) } },
   responses: {
@@ -562,8 +564,9 @@ export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateD
       title: 'MyQueue API',
       version: appInfo.version,
       description:
-        'MyQueue platform API: infrastructure probes, the Slack OAuth/install surface ' +
-        '(Phase 2), and the internal queue API (Phase 3A).',
+        'MyQueue platform API: infrastructure probes, the Slack surface — OAuth/install ' +
+        '(Phase 2) and the in-Slack experience (Phase 4) — and the internal queue API ' +
+        '(Phase 3A).',
     },
     servers: [{ url: env.APP_BASE_URL }],
   });

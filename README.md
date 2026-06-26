@@ -17,6 +17,10 @@ Docker packaging, a full test suite, and CI/CD:
   automatic recovery, a retry engine, a Dead Letter Queue, a worker registry, and
   queue statistics — many workers process the queue concurrently with no
   duplicate execution (see [docs/queue-engine.md](docs/queue-engine.md)).
+- **Phase 4** — the Slack experience: an App Home dashboard, the `/myqueue`
+  slash command, an "Add to MyQueue" message shortcut, and Block Kit item
+  actions — manage the queue without leaving Slack (see
+  [docs/slack.md](docs/slack.md)).
 
 ## Tech stack
 
@@ -82,6 +86,7 @@ This starts the API, a background worker, PostgreSQL, and Redis. See
 - [Getting Started](docs/getting-started.md)
 - [Architecture Overview](docs/architecture.md)
 - [Queue Engine (Phases 3A & 3B)](docs/queue-engine.md)
+- [Slack App Setup & Experience (Phases 2 & 4)](docs/slack.md)
 - [Local Development Guide](docs/local-development.md)
 - [Docker Guide](docs/docker.md)
 - [Environment Guide](docs/environment.md)

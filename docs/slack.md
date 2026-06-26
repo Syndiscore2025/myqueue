@@ -1,8 +1,9 @@
-# Slack App Setup (Phase 2)
+# Slack App Setup & Experience
 
-MyQueue installs into Slack workspaces via OAuth v2. This guide covers the
-Slack Developer Portal configuration and the environment variables that wire it
-together. All Slack tokens are encrypted at rest (AES-256-GCM) and every record
+MyQueue installs into Slack workspaces via OAuth v2 (Phase 2) and is fully
+usable inside Slack (Phase 4). This guide covers the Slack Developer Portal
+configuration, the environment variables that wire it together, and the in-Slack
+surfaces. All Slack tokens are encrypted at rest (AES-256-GCM) and every record
 is scoped to a workspace (tenant).
 
 ## 1. Create the Slack app
@@ -94,7 +95,46 @@ In production, the four required `SLACK_*` credentials are mandatory — the
 process will not boot without them. In development/test they may be left blank,
 in which case the Slack surface is simply not mounted.
 
-## 6. Marketplace notes
+## 6. In-Slack experience (Phase 4)
+
+Phase 4 makes the queue fully usable inside Slack. The Slack handlers are thin
+interface adapters (`src/interfaces/slack`) that resolve a verified Slack
+identity to a tenant-scoped `QueueContext` and delegate to the existing queue
+application services; no business logic lives in the Slack layer.
+
+Surfaces:
+
+| Surface             | Trigger                          | What it does                                              |
+| ------------------- | -------------------------------- | -------------------------------------------------------- |
+| App Home dashboard  | `app_home_opened` event          | Publishes the user's ranked queue with priority/status filters. |
+| `/myqueue` command  | Slash command                    | Navigates the queue/priority/status views from any channel.     |
+| Add to MyQueue      | Message shortcut (`message_action`) | Turns the selected message into a `SLACK_MESSAGE` item.       |
+| Item actions        | Block Kit buttons / overflow     | Start, Follow Up, Waiting, Snooze, Complete, Archive, Refresh.  |
+
+Per-item buttons are gated by the domain lifecycle state machine, so only legal
+transitions render. Each action re-renders its source surface in place — the App
+Home tab is re-published; an ephemeral slash-command reply is replaced — reading
+the current view from the view's `private_metadata`.
+
+**Idempotency.** Side-effecting interactions (e.g. creating an item from a
+message) are guarded by a Redis-backed one-time claim keyed on the Slack payload
+id (`trigger_id` / event id), so Slack retries never double-process. The guard
+fails open: a transient cache outage degrades to "may run twice" rather than
+"never runs".
+
+### Portal configuration
+
+The Phase 4 surfaces need no new scopes — `commands` and the Phase 2 set suffice
+— but they require these portal toggles:
+
+- **App Home → Home Tab**: enable it, and subscribe to the `app_home_opened` bot
+  event under **Event Subscriptions → Subscribe to bot events**.
+- **Interactivity & Shortcuts**: turn **Interactivity** on (Request URL
+  `https://YOUR_DOMAIN/slack/events`) so buttons and shortcuts are delivered.
+- **Shortcuts**: add a **message** shortcut named "Add to MyQueue".
+- **Slash Commands**: create `/myqueue` pointing at the same Request URL.
+
+## 7. Marketplace notes
 
 - Tokens are never stored in plaintext; encryption is handled by the repository
   layer using `ENCRYPTION_KEY`.

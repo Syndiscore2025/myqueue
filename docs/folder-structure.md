@@ -18,7 +18,8 @@
 │   │   ├── errors/               # ApplicationError hierarchy
 │   │   └── queue/                # Pure queue rules: ranking, status machine, priority
 │   ├── application/
-│   │   └── queue/                # Queue use cases: service + claim/recovery/retry/DLQ/registry/statistics + events
+│   │   ├── queue/                # Queue use cases: service + claim/recovery/retry/DLQ/registry/statistics + events
+│   │   └── slack/                # Slack use cases: identity → QueueContext, retry idempotency guard
 │   ├── infrastructure/
 │   │   ├── database/prisma.ts    # Prisma client + health
 │   │   ├── redis/redis.ts        # Redis connections + health
@@ -26,11 +27,12 @@
 │   │   ├── repositories/         # Tenant-scoped Prisma repositories (incl. queue)
 │   │   └── slack/                # Bolt app, InstallationStore, StateStore
 │   ├── interfaces/
-│   │   └── http/
-│   │       ├── app.ts            # Express app assembly (+ Slack receiver mount)
-│   │       ├── openapi.ts        # OpenAPI document (from Zod)
-│   │       ├── middleware/       # security, logging, rate limit, errors, workspace context
-│   │       └── routes/           # health + /api/v1/queue (incl. processing) + /api/v1/workers
+│   │   ├── http/
+│   │   │   ├── app.ts            # Express app assembly (+ Slack receiver mount)
+│   │   │   ├── openapi.ts        # OpenAPI document (from Zod)
+│   │   │   ├── middleware/       # security, logging, rate limit, errors, workspace context
+│   │   │   └── routes/           # health + /api/v1/queue (incl. processing) + /api/v1/workers
+│   │   └── slack/                # Bolt adapters: App Home, /myqueue, shortcut, actions + Block Kit views
 │   ├── queues/
 │   │   └── queue-manager.ts      # BullMQ queue/worker registry
 │   ├── workers/
@@ -60,9 +62,10 @@
 | ------------------ | --------------------------------------------------------- |
 | `config/`          | Environment validation and application metadata.          |
 | `domain/`          | Framework-free business model and errors (queue rules).   |
-| `application/`     | Use-case orchestration (queue service + processing engine).|
+| `application/`     | Use-case orchestration (queue service + processing engine; Slack identity/idempotency).|
 | `infrastructure/`  | Adapters to external systems (DB, Redis, integrations).   |
 | `interfaces/http/` | HTTP delivery: Express app, routes, middleware, OpenAPI.  |
+| `interfaces/slack/`| Slack delivery: thin Bolt adapters and Block Kit presenters.|
 | `queues/`          | BullMQ queue and worker management.                       |
 | `workers/`         | Background worker bootstrap + queue recovery loop.        |
 | `utils/`           | Cross-cutting helpers shared across layers.               |

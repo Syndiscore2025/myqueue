@@ -29,9 +29,9 @@ architecture and delivered in stacked branches by phase.
 
 - **Repo:** `github.com/Syndiscore2025/myqueue`.
 - Work is done as stacked branches. Do not commit phase work directly to `main`.
-- Current Phase 3C branch: `feat/phase-3c-scheduled-orchestration`.
-- Phase 3C was branched from `feat/phase-3b-queue-processing` and should target
-  that branch if a PR is opened.
+- Current Phase 4 branch: `feat/phase-4-slack-experience`.
+- Phase 4 was branched from `feat/phase-3c-scheduled-orchestration` and should
+  target that branch if a PR is opened.
 - Use conventional commits and commit completed slices separately.
 - **Ask before:** push, PR creation, merge, rebase, dependency install, deploy,
   production data changes, or long/expensive staging-scale tests.
@@ -47,8 +47,8 @@ architecture and delivered in stacked branches by phase.
 | Phase 3A | Queue domain, ranking, positions, internal queue API | ✅ Complete |
 | Phase 3B | Worker processing, leases, recovery, retries, DLQ, stats | ✅ Complete |
 | Phase 3C | Scheduling, delay, snooze, recurrence, rate limits, dependencies, partitions | ✅ Core complete |
-| Phase 4 | Slack Experience | ⏭️ Next |
-| Phase 5 | Automation & Notifications | 🔒 Future |
+| Phase 4 | Slack Experience | ✅ Complete (on branch) |
+| Phase 5 | Automation & Notifications | ⏭️ Next |
 | Phase 6 | SaaS Features | 🔒 Future |
 | Phase 7 | Production Hardening | 🔒 Future |
 | Phase 8 | Marketplace Readiness | 🔒 Future |
@@ -172,31 +172,42 @@ Local Postgres used during development has been `localhost:55432`.
 
 ---
 
-## 8. Phase 4 — Slack Experience (next)
+## 8. Phase 4 — Slack Experience (complete on branch)
 
-**Goal:** Make the product usable entirely inside Slack.
+**Goal achieved:** the queue is fully manageable inside Slack. The Slack layer
+(`src/interfaces/slack`) is a set of thin Bolt adapters that resolve a verified
+Slack identity to a tenant-scoped `QueueContext` and delegate to the existing
+queue application services; presenters are pure and gated by the domain lifecycle
+state machine. See [docs/slack.md](docs/slack.md) §6 for the surface catalogue.
 
-Deliverables:
+Delivered:
 
-- Message shortcuts for adding Slack messages to MyQueue.
-- Slash commands for queue actions and quick navigation.
-- Block Kit buttons for item actions.
-- App Home dashboard.
-- Queue views inside Slack.
-- Priority views: Red / Yellow / Green.
-- Status/action views: Working, Follow Up, Waiting, Snooze, Archive.
-- Refresh queue action.
+- `SlackIdentityService` — maps a Slack tenant+user to `QueueContext`.
+- Block Kit presenters for the queue, priority (Red/Yellow/Green) and
+  status/action (Working/Follow Up/Waiting/Snooze/Archive) views.
+- App Home dashboard published from `app_home_opened`.
+- `/myqueue` slash command for navigation across the views.
+- "Add to MyQueue" message shortcut (`SLACK_MESSAGE` items).
+- Block Kit item actions: Start, Follow Up, Waiting, Snooze, Complete, Archive,
+  Refresh — re-rendering the source surface in place.
+- `SlackIdempotencyService` — Redis-backed one-time guard so Slack retries never
+  double-process side-effecting handlers.
 
-Recommended implementation notes:
+No new Slack scopes were required; Phase 4 needs only portal toggles (App Home
+tab + `app_home_opened`, Interactivity, the message shortcut, and the slash
+command) documented in [docs/slack.md](docs/slack.md).
 
-- Build Slack handlers as thin interface adapters that call application services.
-- Verify Slack signatures and timestamps before processing requests.
-- Use idempotency for Slack retries.
-- Keep Slack payload parsing separate from queue business logic.
-- Add tests for shortcuts, commands, interactive actions, and App Home rendering.
+### Phase 4 commit list
 
-At the end of Phase 4, users should be able to manage their queue from Slack
-without visiting an external admin UI.
+| Commit | Slice |
+| --- | --- |
+| `84df3b7` | Slack identity → tenant-scoped `QueueContext` |
+| `9eec45a` | Block Kit presenters (queue/priority/status views) |
+| `ee7b45d` | App Home dashboard from `app_home_opened` |
+| `dbb19c2` | `/myqueue` slash command navigation |
+| `62e2e96` | Add to MyQueue message shortcut |
+| `b3abfc0` | Interactive queue actions |
+| `81641d0` | Idempotency guard for Slack retries |
 
 ---
 
@@ -302,10 +313,10 @@ These are the main items worth addressing before public production launch:
 
 ## 11. Suggested immediate next step
 
-1. Optionally run the full gated integration suite locally.
-2. Update Phase 3 docs if desired before opening a PR.
-3. Open a PR for `feat/phase-3c-scheduled-orchestration` into
-   `feat/phase-3b-queue-processing` after approval.
-4. Begin Phase 4 on a new stacked branch after Phase 3C is accepted.
+1. Optionally run the full gated integration suite locally (`RUN_INTEGRATION=true`).
+2. Open a PR for `feat/phase-4-slack-experience` into
+   `feat/phase-3c-scheduled-orchestration` after approval.
+3. Begin Phase 5 (Automation & Notifications) on a new stacked branch after
+   Phase 4 is accepted.
 
-Do not begin Phase 4 work in the current branch unless explicitly instructed.
+Do not begin Phase 5 work in the current branch unless explicitly instructed.

@@ -7,7 +7,7 @@ services without rewrites.
 ## Layers
 
 ```
-interfaces/      HTTP delivery: Express app, routes, middleware, OpenAPI
+interfaces/      Delivery: HTTP (Express, routes, OpenAPI) and Slack (Bolt adapters)
 application/      Use cases / orchestration (e.g. the queue service)
 domain/           Pure business model: entities, errors, value objects
 infrastructure/   External systems: Prisma (DB), Redis, integrations
@@ -83,6 +83,21 @@ duplicate execution. Concurrency is enforced in the data layer via
 `FOR UPDATE SKIP LOCKED` rather than application locks. See
 [queue-engine.md](./queue-engine.md) for its mechanics, API, concurrency
 guarantees, and limitations.
+
+## Slack experience
+
+Phase 4 adds a second delivery surface alongside HTTP: `interfaces/slack`. These
+are **thin Bolt adapters** — App Home, the `/myqueue` slash command, the "Add to
+MyQueue" message shortcut, and Block Kit item actions. Each handler verifies the
+Slack request (via the Bolt receiver), resolves the Slack identity to a
+tenant-scoped `QueueContext` through `application/slack/SlackIdentityService`,
+and delegates to the same queue application services the HTTP API uses. Block Kit
+presenters are pure and depend only on the domain (the lifecycle state machine
+gates which item buttons render), so no business logic leaks into the Slack layer.
+
+Side-effecting interactions are protected by `SlackIdempotencyService`, a
+Redis-backed one-time guard keyed on the Slack payload id, so Slack retries never
+double-process. See [slack.md](./slack.md) for setup and the surface catalogue.
 
 ## Future service extraction
 
