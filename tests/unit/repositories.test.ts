@@ -4,6 +4,14 @@ import { WorkspaceRepository } from '../../src/infrastructure/repositories/works
 import { SlackInstallationRepository } from '../../src/infrastructure/repositories/slack-installation-repository';
 import { OAuthStateRepository } from '../../src/infrastructure/repositories/oauth-state-repository';
 import { WorkspaceAuditLogRepository } from '../../src/infrastructure/repositories/workspace-audit-log-repository';
+import {
+  QueueItemRepository,
+  formatPermanentQueueId,
+} from '../../src/infrastructure/repositories/queue-item-repository';
+import { WorkspaceQueueSettingsRepository } from '../../src/infrastructure/repositories/workspace-queue-settings-repository';
+import { QueueEventRepository } from '../../src/infrastructure/repositories/queue-event-repository';
+import { QueueHistoryRepository } from '../../src/infrastructure/repositories/queue-history-repository';
+import { QueueEventType, QueuePriority, QueueStatus } from '../../src/domain/queue';
 
 const KEY = 'a'.repeat(64);
 
@@ -16,11 +24,18 @@ interface PrismaMock {
   slackInstallation: { upsert: Fn; findUnique: Fn; updateMany: Fn };
   oAuthState: { create: Fn; updateMany: Fn; findUnique: Fn; deleteMany: Fn };
   workspaceAuditLog: { create: Fn; findMany: Fn };
+  workspaceQueueSettings: { upsert: Fn; findUnique: Fn };
+  queueItem: { create: Fn; findFirst: Fn; findUnique: Fn; findMany: Fn; updateMany: Fn };
+  queueEvent: { create: Fn; findMany: Fn };
+  queueStatusHistory: { create: Fn; findMany: Fn };
+  queuePriorityHistory: { create: Fn; findMany: Fn };
+  queueAssignment: { create: Fn; findMany: Fn };
+  $transaction: Fn;
 }
 
 /** Build a Prisma mock whose model delegates are jest mock functions. */
 function mockPrisma(): PrismaMock {
-  return {
+  const mock: PrismaMock = {
     workspace: { upsert: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     workspaceSettings: { upsert: jest.fn() },
     workspaceUser: { upsert: jest.fn() },
@@ -32,7 +47,23 @@ function mockPrisma(): PrismaMock {
       deleteMany: jest.fn(),
     },
     workspaceAuditLog: { create: jest.fn(), findMany: jest.fn() },
+    workspaceQueueSettings: { upsert: jest.fn(), findUnique: jest.fn() },
+    queueItem: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    queueEvent: { create: jest.fn(), findMany: jest.fn() },
+    queueStatusHistory: { create: jest.fn(), findMany: jest.fn() },
+    queuePriorityHistory: { create: jest.fn(), findMany: jest.fn() },
+    queueAssignment: { create: jest.fn(), findMany: jest.fn() },
+    $transaction: jest.fn(),
   };
+  // By default run a transaction callback against the mock itself (tx === prisma).
+  mock.$transaction.mockImplementation((cb: (tx: PrismaMock) => unknown) => cb(mock));
+  return mock;
 }
 
 describe('WorkspaceRepository', () => {
@@ -161,5 +192,163 @@ describe('WorkspaceAuditLogRepository', () => {
     const data = prisma.workspaceAuditLog.create.mock.calls[0]![0].data;
     expect(data).not.toHaveProperty('metadata');
     expect(data.actorSlackUserId).toBeNull();
+  });
+});
+
+describe('formatPermanentQueueId', () => {
+  it('zero-pads the sequence to six digits with an MQ- prefix', () => {
+    expect(formatPermanentQueueId(1)).toBe('MQ-000001');
+    expect(formatPermanentQueueId(842)).toBe('MQ-000842');
+  });
+
+  it('does not truncate sequences beyond six digits', () => {
+    expect(formatPermanentQueueId(1234567)).toBe('MQ-1234567');
+  });
+});
+
+describe('QueueItemRepository', () => {
+  it('mints a permanent id atomically by incrementing the workspace counter', async () => {
+    const prisma = mockPrisma();
+    prisma.workspaceQueueSettings.upsert.mockResolvedValue({ lastQueueSeq: 7 });
+    prisma.queueItem.create.mockResolvedValue({ id: 'q1', permanentQueueId: 'MQ-000007' });
+    const repo = new QueueItemRepository(prisma as unknown as PrismaClient);
+
+    await repo.create({ workspaceId: 'w1', ownerWorkspaceUserId: 'u1', title: 'Fix bug' });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    const upsertArgs = prisma.workspaceQueueSettings.upsert.mock.calls[0]![0];
+    expect(upsertArgs.where).toEqual({ workspaceId: 'w1' });
+    expect(upsertArgs.update).toEqual({ lastQueueSeq: { increment: 1 } });
+    const data = prisma.queueItem.create.mock.calls[0]![0].data;
+    expect(data.permanentQueueId).toBe('MQ-000007');
+    expect(data.workspaceId).toBe('w1');
+    expect(data.status).toBe(QueueStatus.New);
+    expect(data.priority).toBe(QueuePriority.Green);
+  });
+
+  it('scopes findById by workspace to enforce tenant isolation', async () => {
+    const prisma = mockPrisma();
+    prisma.queueItem.findFirst.mockResolvedValue({ id: 'q1' });
+    const repo = new QueueItemRepository(prisma as unknown as PrismaClient);
+    await repo.findById('w1', 'q1');
+    expect(prisma.queueItem.findFirst).toHaveBeenCalledWith({
+      where: { id: 'q1', workspaceId: 'w1' },
+    });
+  });
+
+  it('resolves an item by permanent id using the composite unique key', async () => {
+    const prisma = mockPrisma();
+    prisma.queueItem.findUnique.mockResolvedValue({ id: 'q1' });
+    const repo = new QueueItemRepository(prisma as unknown as PrismaClient);
+    await repo.findByPermanentId('w1', 'MQ-000007');
+    expect(prisma.queueItem.findUnique).toHaveBeenCalledWith({
+      where: { workspaceId_permanentQueueId: { workspaceId: 'w1', permanentQueueId: 'MQ-000007' } },
+    });
+  });
+
+  it('filters listByOwner by status when statuses are provided', async () => {
+    const prisma = mockPrisma();
+    prisma.queueItem.findMany.mockResolvedValue([]);
+    const repo = new QueueItemRepository(prisma as unknown as PrismaClient);
+    await repo.listByOwner('w1', 'u1', { statuses: [QueueStatus.New, QueueStatus.Working] });
+    const args = prisma.queueItem.findMany.mock.calls[0]![0];
+    expect(args.where).toEqual({
+      workspaceId: 'w1',
+      ownerWorkspaceUserId: 'u1',
+      status: { in: [QueueStatus.New, QueueStatus.Working] },
+    });
+  });
+
+  it('returns null from updateScoped when no item matches the workspace', async () => {
+    const prisma = mockPrisma();
+    prisma.queueItem.updateMany.mockResolvedValue({ count: 0 });
+    const repo = new QueueItemRepository(prisma as unknown as PrismaClient);
+    await expect(repo.updateScoped('w1', 'missing', { title: 'x' })).resolves.toBeNull();
+    expect(prisma.queueItem.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe('WorkspaceQueueSettingsRepository', () => {
+  it('only writes fields that were explicitly provided', async () => {
+    const prisma = mockPrisma();
+    prisma.workspaceQueueSettings.upsert.mockResolvedValue({ id: 's1' });
+    const repo = new WorkspaceQueueSettingsRepository(prisma as unknown as PrismaClient);
+    await repo.update('w1', { includeWaitingInActive: true });
+    const args = prisma.workspaceQueueSettings.upsert.mock.calls[0]![0];
+    expect(args.where).toEqual({ workspaceId: 'w1' });
+    expect(args.update).toEqual({ includeWaitingInActive: true });
+    expect(args.update).not.toHaveProperty('rankingMode');
+  });
+});
+
+describe('QueueEventRepository', () => {
+  it('records a queue-wide event with null item and defaults', async () => {
+    const prisma = mockPrisma();
+    prisma.queueEvent.create.mockResolvedValue({ id: 'e1' });
+    const repo = new QueueEventRepository(prisma as unknown as PrismaClient);
+    await repo.record({ workspaceId: 'w1', eventType: QueueEventType.RECALCULATED });
+    const data = prisma.queueEvent.create.mock.calls[0]![0].data;
+    expect(data.workspaceId).toBe('w1');
+    expect(data.queueItemId).toBeNull();
+    expect(data.actorWorkspaceUserId).toBeNull();
+    expect(data).not.toHaveProperty('metadata');
+  });
+
+  it('scopes listForItem by workspace and item', async () => {
+    const prisma = mockPrisma();
+    prisma.queueEvent.findMany.mockResolvedValue([]);
+    const repo = new QueueEventRepository(prisma as unknown as PrismaClient);
+    await repo.listForItem('w1', 'q1');
+    expect(prisma.queueEvent.findMany.mock.calls[0]![0].where).toEqual({
+      workspaceId: 'w1',
+      queueItemId: 'q1',
+    });
+  });
+});
+
+describe('QueueHistoryRepository', () => {
+  it('records a status change with a null from-status on creation', async () => {
+    const prisma = mockPrisma();
+    prisma.queueStatusHistory.create.mockResolvedValue({ id: 'h1' });
+    const repo = new QueueHistoryRepository(prisma as unknown as PrismaClient);
+    await repo.recordStatusChange({
+      workspaceId: 'w1',
+      queueItemId: 'q1',
+      toStatus: QueueStatus.New,
+    });
+    const data = prisma.queueStatusHistory.create.mock.calls[0]![0].data;
+    expect(data.fromStatus).toBeNull();
+    expect(data.toStatus).toBe(QueueStatus.New);
+    expect(data.workspaceId).toBe('w1');
+  });
+
+  it('defaults a priority change to non-automatic', async () => {
+    const prisma = mockPrisma();
+    prisma.queuePriorityHistory.create.mockResolvedValue({ id: 'h2' });
+    const repo = new QueueHistoryRepository(prisma as unknown as PrismaClient);
+    await repo.recordPriorityChange({
+      workspaceId: 'w1',
+      queueItemId: 'q1',
+      toPriority: QueuePriority.Red,
+      source: 'manual',
+    });
+    const data = prisma.queuePriorityHistory.create.mock.calls[0]![0].data;
+    expect(data.automatic).toBe(false);
+    expect(data.toPriority).toBe(QueuePriority.Red);
+  });
+
+  it('records an assignment scoped to the workspace', async () => {
+    const prisma = mockPrisma();
+    prisma.queueAssignment.create.mockResolvedValue({ id: 'h3' });
+    const repo = new QueueHistoryRepository(prisma as unknown as PrismaClient);
+    await repo.recordAssignment({
+      workspaceId: 'w1',
+      queueItemId: 'q1',
+      ownerWorkspaceUserId: 'u2',
+    });
+    const data = prisma.queueAssignment.create.mock.calls[0]![0].data;
+    expect(data.workspaceId).toBe('w1');
+    expect(data.ownerWorkspaceUserId).toBe('u2');
+    expect(data.previousOwnerWorkspaceUserId).toBeNull();
   });
 });

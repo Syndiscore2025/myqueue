@@ -20,3 +20,28 @@ export {
   workspaceAuditLogRepository,
   type AuditEntry,
 } from './workspace-audit-log-repository';
+export {
+  WorkspaceQueueSettingsRepository,
+  workspaceQueueSettingsRepository,
+  type WorkspaceQueueSettingsUpdate,
+} from './workspace-queue-settings-repository';
+export {
+  QueueItemRepository,
+  queueItemRepository,
+  formatPermanentQueueId,
+  type CreateQueueItemInput,
+  type QueueItemUpdate,
+  type ListByOwnerOptions,
+} from './queue-item-repository';
+export {
+  QueueEventRepository,
+  queueEventRepository,
+  type QueueEventEntry,
+} from './queue-event-repository';
+export {
+  QueueHistoryRepository,
+  queueHistoryRepository,
+  type StatusHistoryEntry,
+  type PriorityHistoryEntry,
+  type AssignmentEntry,
+} from './queue-history-repository';
