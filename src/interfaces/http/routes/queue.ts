@@ -3,6 +3,7 @@ import {
   queueClaimService,
   queueDeadLetterService,
   queueService,
+  queueStatisticsService,
   type CreateItemInput,
 } from '../../../application/queue';
 import { asyncHandler } from '../../../utils/async-handler';
@@ -116,6 +117,16 @@ queueRouter.post(
     const body = requeueDeadLetterSchema.parse(req.body);
     const item = await queueDeadLetterService.requeue(ctx, body.permanentQueueId);
     res.status(200).json({ item });
+  }),
+);
+
+// Operator: read aggregate statistics for the workspace's queue.
+queueRouter.get(
+  '/statistics',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const statistics = await queueStatisticsService.get(ctx.workspaceId);
+    res.status(200).json({ statistics });
   }),
 );
 

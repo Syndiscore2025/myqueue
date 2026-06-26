@@ -400,6 +400,47 @@ registry.registerPath({
   },
 });
 
+// --- Queue statistics (Phase 3B) ---------------------------------------------
+// Operator-facing aggregate view guarded by workspace context.
+
+const QueueStatisticsSchema = registry.register(
+  'QueueStatistics',
+  z.object({
+    counts: z.record(z.string(), z.number().int()).openapi({
+      description: 'Item counts keyed by status; every status is present (zero when empty).',
+    }),
+    averageWaitTimeMs: z.number().nullable(),
+    averageProcessingTimeMs: z.number().nullable(),
+    totalRetries: z.number().int(),
+    averageRetryCount: z.number().nullable(),
+    oldestQueuedAt: z.string().nullable(),
+    newestQueuedAt: z.string().nullable(),
+    averageQueueAgeMs: z.number().nullable(),
+    longestProcessingJobMs: z.number().nullable(),
+    workerUtilization: z.object({
+      totalWorkers: z.number().int(),
+      busyWorkers: z.number().int(),
+      ratio: z.number().openapi({ description: 'busyWorkers / totalWorkers in [0, 1].' }),
+    }),
+  }),
+);
+const StatisticsEnvelope = z.object({ statistics: QueueStatisticsSchema });
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/queue/statistics',
+  summary: 'Read aggregate queue statistics',
+  description:
+    'Counts by status, average wait/processing time, retries, oldest/newest queued item, ' +
+    'average queue age, longest in-flight job, and live worker utilization for the workspace.',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The workspace queue statistics.', content: json(StatisticsEnvelope) },
+    ...guarded,
+  },
+});
+
 // --- Queue worker processing (Phase 3B) --------------------------------------
 // Worker-facing routes identified by an explicit worker id rather than a user.
 

@@ -52,6 +52,9 @@ jest.mock('../../src/application/queue', () => ({
     list: jest.fn(),
     register: jest.fn(),
   },
+  queueStatisticsService: {
+    get: jest.fn(),
+  },
 }));
 
 import { createApp } from '../../src/interfaces/http/app';
@@ -59,6 +62,7 @@ import {
   queueClaimService,
   queueDeadLetterService,
   queueService,
+  queueStatisticsService,
   workerRegistryService,
 } from '../../src/application/queue';
 
@@ -357,6 +361,36 @@ describe('worker registry API', () => {
   });
 });
 
+describe('queue statistics API', () => {
+  const statistics = {
+    counts: { New: 3, Processing: 1, Done: 5, DeadLetter: 1 },
+    averageWaitTimeMs: 1200,
+    averageProcessingTimeMs: 3400,
+    totalRetries: 4,
+    averageRetryCount: 0.4,
+    oldestQueuedAt: '2026-01-01T00:00:00.000Z',
+    newestQueuedAt: '2026-01-02T00:00:00.000Z',
+    averageQueueAgeMs: 86_400_000,
+    longestProcessingJobMs: 5000,
+    workerUtilization: { totalWorkers: 3, busyWorkers: 1, ratio: 1 / 3 },
+  };
+
+  it('returns the workspace queue statistics', async () => {
+    mock(queueStatisticsService.get).mockResolvedValue(statistics);
+    const res = await request(app).get('/api/v1/queue/statistics').set(headers);
+    expect(res.status).toBe(200);
+    expect(res.body.statistics.counts.New).toBe(3);
+    expect(res.body.statistics.workerUtilization.totalWorkers).toBe(3);
+    expect(queueStatisticsService.get).toHaveBeenCalledWith('w1');
+  });
+
+  it('rejects statistics without workspace context (401)', async () => {
+    const res = await request(app).get('/api/v1/queue/statistics');
+    expect(res.status).toBe(401);
+    expect(queueStatisticsService.get).not.toHaveBeenCalled();
+  });
+});
+
 describe('queue API documentation', () => {
   it('documents the queue routes in the OpenAPI document', async () => {
     const res = await request(app).get('/openapi.json');
@@ -371,6 +405,7 @@ describe('queue API documentation', () => {
     expect(res.body.paths['/api/v1/queue/fail']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/dead-letter']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/dead-letter/requeue']).toBeDefined();
+    expect(res.body.paths['/api/v1/queue/statistics']).toBeDefined();
     expect(res.body.paths['/api/v1/workers']).toBeDefined();
   });
 });

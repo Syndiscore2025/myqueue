@@ -41,3 +41,10 @@ export {
   workerRegistryService,
   type WorkerRegistryServiceDeps,
 } from './worker-registry-service';
+export {
+  QueueStatisticsService,
+  queueStatisticsService,
+  type QueueStatisticsServiceDeps,
+  type QueueStatisticsView,
+  type WorkerUtilization,
+} from './queue-statistics-service';

@@ -124,6 +124,43 @@ export interface RequeueDeadLetterParams {
 }
 
 /**
+ * Aggregate statistics for a workspace's queue. Durations are milliseconds and
+ * null when no item contributes to that measure (e.g. nothing queued yet).
+ */
+export interface QueueStatistics {
+  /** Item counts keyed by status; every status is present (zero when empty). */
+  counts: Record<QueueStatus, number>;
+  /** Mean enqueue-to-processing-start time over items that have started. */
+  averageWaitTimeMs: number | null;
+  /** Mean processing duration over items that finished processing. */
+  averageProcessingTimeMs: number | null;
+  /** Sum of attempt_count across all items (total processing attempts/retries). */
+  totalRetries: number;
+  /** Mean attempt_count across all items. */
+  averageRetryCount: number | null;
+  /** Oldest currently-queued (New) item's creation time. */
+  oldestQueuedAt: Date | null;
+  /** Newest currently-queued (New) item's creation time. */
+  newestQueuedAt: Date | null;
+  /** Mean age (now - created_at) of currently-queued (New) items. */
+  averageQueueAgeMs: number | null;
+  /** Age (now - processing_started_at) of the longest in-flight Processing job. */
+  longestProcessingJobMs: number | null;
+}
+
+/** Shape of the single-row raw aggregate query backing {@link QueueStatistics}. */
+interface StatisticsAggregateRow {
+  oldestQueuedAt: Date | null;
+  newestQueuedAt: Date | null;
+  averageQueueAgeMs: number | null;
+  averageWaitTimeMs: number | null;
+  averageProcessingTimeMs: number | null;
+  longestProcessingJobMs: number | null;
+  totalRetries: number;
+  averageRetryCount: number | null;
+}
+
+/**
  * Tenant-scoped persistence for queue items. Creation atomically mints a
  * per-workspace permanent id by incrementing the workspace's queue sequence
  * counter inside a transaction. All reads and writes are scoped by workspaceId.
@@ -484,6 +521,65 @@ export class QueueItemRepository {
       }
     }
     return counts;
+  }
+
+  /**
+   * Compute aggregate statistics for a workspace's queue: counts per status plus
+   * timing/retry measures. Counts come from a grouped tally; the timing and retry
+   * aggregates come from a single filtered raw query so each measure is scoped to
+   * the items it applies to. Timestamps are cast to timestamptz on both sides so
+   * duration math is independent of the column's timezone configuration.
+   */
+  async getStatistics(workspaceId: string, now: Date = new Date()): Promise<QueueStatistics> {
+    const [groups, rows] = await Promise.all([
+      this.prisma.queueItem.groupBy({
+        by: ['status'],
+        where: { workspaceId },
+        _count: { _all: true },
+      }),
+      this.prisma.$queryRaw<StatisticsAggregateRow[]>(Prisma.sql`
+        SELECT
+          MIN("created_at") FILTER (WHERE "status" = CAST(${QueueStatus.New} AS "QueueStatus"))
+            AS "oldestQueuedAt",
+          MAX("created_at") FILTER (WHERE "status" = CAST(${QueueStatus.New} AS "QueueStatus"))
+            AS "newestQueuedAt",
+          AVG(EXTRACT(EPOCH FROM (${now}::timestamptz - "created_at"::timestamptz)) * 1000)
+            FILTER (WHERE "status" = CAST(${QueueStatus.New} AS "QueueStatus")) AS "averageQueueAgeMs",
+          AVG(EXTRACT(EPOCH FROM ("processing_started_at"::timestamptz - "created_at"::timestamptz)) * 1000)
+            FILTER (WHERE "processing_started_at" IS NOT NULL) AS "averageWaitTimeMs",
+          AVG(EXTRACT(EPOCH FROM ("processing_completed_at"::timestamptz - "processing_started_at"::timestamptz)) * 1000)
+            FILTER (WHERE "processing_completed_at" IS NOT NULL AND "processing_started_at" IS NOT NULL)
+            AS "averageProcessingTimeMs",
+          MAX(EXTRACT(EPOCH FROM (${now}::timestamptz - "processing_started_at"::timestamptz)) * 1000)
+            FILTER (
+              WHERE "status" = CAST(${QueueStatus.Processing} AS "QueueStatus")
+                AND "processing_started_at" IS NOT NULL
+            ) AS "longestProcessingJobMs",
+          CAST(COALESCE(SUM("attempt_count"), 0) AS INTEGER) AS "totalRetries",
+          AVG("attempt_count")::double precision AS "averageRetryCount"
+        FROM "queue_items"
+        WHERE "workspace_id" = ${workspaceId}
+      `),
+    ]);
+    const counts = Object.fromEntries(Object.values(QueueStatus).map((s) => [s, 0])) as Record<
+      QueueStatus,
+      number
+    >;
+    for (const group of groups) {
+      counts[group.status] = group._count._all;
+    }
+    const agg = rows[0];
+    return {
+      counts,
+      oldestQueuedAt: agg?.oldestQueuedAt ?? null,
+      newestQueuedAt: agg?.newestQueuedAt ?? null,
+      averageQueueAgeMs: agg?.averageQueueAgeMs ?? null,
+      averageWaitTimeMs: agg?.averageWaitTimeMs ?? null,
+      averageProcessingTimeMs: agg?.averageProcessingTimeMs ?? null,
+      longestProcessingJobMs: agg?.longestProcessingJobMs ?? null,
+      totalRetries: agg?.totalRetries ?? 0,
+      averageRetryCount: agg?.averageRetryCount ?? null,
+    };
   }
 }
 
