@@ -1,6 +1,7 @@
 import type { App, Context, MessageShortcut } from '@slack/bolt';
 import type { WebClient } from '@slack/web-api';
 import { queueService } from '../../../application/queue';
+import { slackIdempotencyService } from '../../../application/slack';
 import { QueueSourceType } from '../../../domain/queue';
 import { createLogger } from '../../../utils/logger';
 import { SLACK_CALLBACK_IDS } from '../constants';
@@ -34,8 +35,10 @@ export function deriveTitle(text: string): string {
  * Create a queue item from the message the user invoked the shortcut on, then
  * open a confirmation modal. The item is owned by the acting user, tagged with
  * the {@link QueueSourceType.SLACK_MESSAGE} source, and its priority is
- * auto-classified by the queue service. On failure a notice modal explains the
- * problem instead of leaving the user without feedback.
+ * auto-classified by the queue service. Guarded against Slack retries by the
+ * interaction `trigger_id` so a re-delivery never creates a duplicate item. On
+ * failure a notice modal explains the problem instead of leaving the user
+ * without feedback.
  */
 export async function handleAddMessage(
   shortcut: MessageShortcut,
@@ -44,6 +47,13 @@ export async function handleAddMessage(
 ): Promise<void> {
   const text = shortcut.message.text ?? '';
   try {
+    const fresh = await slackIdempotencyService.claim(
+      `slack:shortcut:add_message:${shortcut.trigger_id}`,
+    );
+    if (!fresh) {
+      log.info({ user: shortcut.user.id }, 'ignoring duplicate add-message shortcut delivery');
+      return;
+    }
     const ctx = await resolveContext(context, shortcut.user.id);
     const item = await queueService.createItem(ctx, {
       title: deriveTitle(text),

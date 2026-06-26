@@ -20,10 +20,11 @@ jest.mock('../../src/application/queue', () => ({
 
 jest.mock('../../src/application/slack', () => ({
   slackIdentityService: { resolveContext: jest.fn() },
+  slackIdempotencyService: { claim: jest.fn().mockResolvedValue(true) },
 }));
 
 import { queueService } from '../../src/application/queue';
-import { slackIdentityService } from '../../src/application/slack';
+import { slackIdempotencyService, slackIdentityService } from '../../src/application/slack';
 import { QueuePriority, QueueStatus } from '../../src/domain/queue';
 import { QueueView, SLACK_ACTION_IDS } from '../../src/interfaces/slack';
 import { registerAppHome } from '../../src/interfaces/slack/handlers/app-home';
@@ -300,6 +301,22 @@ describe('registerShortcuts', () => {
     const opened = open.mock.calls[0][0] as { view: { title: { text: string } } };
     expect(opened.view.title.text).toBe('MyQueue');
     expect(queueService.createItem).not.toHaveBeenCalled();
+  });
+
+  it('skips creation on a duplicate retry delivery', async () => {
+    mock(slackIdempotencyService.claim).mockResolvedValueOnce(false);
+    const ack = jest.fn();
+    const open = jest.fn();
+    await capture()({
+      shortcut: messageShortcut(),
+      ack,
+      client: { views: { open } },
+      context: { teamId: 'T1' },
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(slackIdentityService.resolveContext).not.toHaveBeenCalled();
+    expect(queueService.createItem).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
   });
 });
 
