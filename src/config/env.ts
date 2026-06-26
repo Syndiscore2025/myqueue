@@ -34,6 +34,19 @@ export const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   TRUST_PROXY: booleanFromString.default('false'),
 
+  // --- Queue processing & worker infrastructure (Phase 3B) ---
+  // How long a worker's claim/lock on an item is held before it is considered
+  // expired and eligible for recovery.
+  QUEUE_LOCK_MINUTES: z.coerce.number().int().positive().default(5),
+  // How often workers refresh their lease via the heartbeat endpoint.
+  QUEUE_HEARTBEAT_SECONDS: z.coerce.number().int().positive().default(30),
+  // Maximum number of expired locks the recovery sweep reclaims per batch.
+  QUEUE_RECOVERY_BATCH_SIZE: z.coerce.number().int().positive().default(100),
+  // Total attempts allowed before an item is moved to the Dead Letter Queue.
+  QUEUE_MAX_RETRIES: z.coerce.number().int().positive().default(3),
+  // Interval, in seconds, between background recovery sweeps.
+  QUEUE_RECOVERY_INTERVAL: z.coerce.number().int().positive().default(60),
+
   SLACK_CLIENT_ID: z.string().default(''),
   SLACK_CLIENT_SECRET: z.string().default(''),
   SLACK_SIGNING_SECRET: z.string().default(''),

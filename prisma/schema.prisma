@@ -49,9 +49,10 @@ model Workspace {
   users        WorkspaceUser[]
   auditLogs    WorkspaceAuditLog[]
 
-  queueItems    QueueItem[]
-  queueEvents   QueueEvent[]
-  queueSettings WorkspaceQueueSettings?
+  queueItems          QueueItem[]
+  queueEvents         QueueEvent[]
+  queueSettings       WorkspaceQueueSettings?
+  workerRegistrations WorkerRegistration[]
 
   @@map("workspaces")
 }
@@ -164,6 +165,10 @@ model WorkspaceAuditLog {
 // ============================================================================
 
 /// Lifecycle state of a queue item. Exact set defined by the product spec.
+///
+/// Phase 3B adds two processing states (additive — Phase 3A states are
+/// unchanged): `Processing` for an item currently claimed by a worker, and
+/// `DeadLetter` for an item that exhausted its retry budget.
 enum QueueStatus {
   New
   Working
@@ -172,6 +177,8 @@ enum QueueStatus {
   Snoozed
   Done
   Archived
+  Processing
+  DeadLetter
 }
 
 /// Urgency of a queue item. Red = urgent, Yellow = needs attention, Green = low.
@@ -197,6 +204,10 @@ enum QueueSourceType {
 }
 
 /// Auditable queue actions recorded in the append-only QueueEvent log.
+///
+/// Phase 3B adds processing-lifecycle actions (additive): a worker claiming an
+/// item, releasing it, automatic recovery of an expired lock, a processing
+/// failure, a scheduled retry, dead-lettering, and requeueing from the DLQ.
 enum QueueEventType {
   CREATED
   ASSIGNED
@@ -210,6 +221,22 @@ enum QueueEventType {
   COMPLETED
   ARCHIVED
   RECALCULATED
+  CLAIMED
+  RELEASED
+  RECOVERED
+  FAILED
+  RETRY_SCHEDULED
+  DEAD_LETTERED
+  REQUEUED
+}
+
+/// Liveness of a registered worker process within a workspace. `ACTIVE` workers
+/// have a recent heartbeat; `IDLE` workers are registered but holding no items;
+/// `DEAD` workers missed their heartbeat window and are eligible for recovery.
+enum WorkerStatus {
+  ACTIVE
+  IDLE
+  DEAD
 }
 
 /// Per-workspace queue configuration plus the monotonic counter used to mint
@@ -252,6 +279,22 @@ model QueueItem {
   assignedAt             DateTime?       @map("assigned_at")
   completedAt            DateTime?       @map("completed_at")
   archivedAt             DateTime?       @map("archived_at")
+
+  // Phase 3B — worker locking, processing lifecycle, retry, and dead-letter.
+  // These columns are null/zero for every Phase 3A item and only populated once
+  // a worker claims an item, so existing behavior is unchanged.
+  claimedByWorkerId     String?   @map("claimed_by_worker_id")
+  claimedAt             DateTime? @map("claimed_at")
+  heartbeatAt           DateTime? @map("heartbeat_at")
+  lockExpiresAt         DateTime? @map("lock_expires_at")
+  attemptCount          Int       @default(0) @map("attempt_count")
+  processingStartedAt   DateTime? @map("processing_started_at")
+  processingCompletedAt DateTime? @map("processing_completed_at")
+  lastError             String?   @map("last_error")
+  lastErrorStack        String?   @map("last_error_stack")
+  failedAt              DateTime? @map("failed_at")
+  deadLetteredAt        DateTime? @map("dead_lettered_at")
+
   createdAt              DateTime        @default(now()) @map("created_at")
   updatedAt              DateTime        @updatedAt @map("updated_at")
 
@@ -265,6 +308,10 @@ model QueueItem {
   @@unique([workspaceId, permanentQueueId])
   @@index([workspaceId, ownerWorkspaceUserId, status])
   @@index([workspaceId, ownerWorkspaceUserId, priority, rankingTimestamp])
+  // Workspace-wide claim selection (status = New, ranked) and expired-lock
+  // recovery (status = Processing, lock_expires_at < now()).
+  @@index([workspaceId, status, priority, rankingTimestamp])
+  @@index([workspaceId, status, lockExpiresAt])
   @@map("queue_items")
 }
 
@@ -355,4 +402,33 @@ model QueuePositionSnapshot {
 
   @@index([workspaceId, ownerWorkspaceUserId, createdAt])
   @@map("queue_position_snapshots")
+}
+
+// ============================================================================
+// Phase 3B — Worker infrastructure
+//
+// A worker is an external process that claims and executes queue items. Workers
+// are tenant-scoped: a worker id is unique per workspace and every registry
+// query is scoped by workspaceId. Workers auto-register on first heartbeat or
+// claim; processingCount tracks the items they currently hold.
+// ============================================================================
+
+/// A registered worker process within a workspace.
+model WorkerRegistration {
+  id              String       @id @default(cuid())
+  workspaceId     String       @map("workspace_id")
+  workerId        String       @map("worker_id")
+  hostname        String?
+  status          WorkerStatus @default(ACTIVE)
+  processingCount Int          @default(0) @map("processing_count")
+  startedAt       DateTime     @default(now()) @map("started_at")
+  lastSeenAt      DateTime     @default(now()) @map("last_seen_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, workerId])
+  @@index([workspaceId, status])
+  @@map("worker_registrations")
 }

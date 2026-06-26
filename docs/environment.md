@@ -22,6 +22,11 @@ to begin.
 | `RATE_LIMIT_MAX`       | no       | `100`                      | Max requests per window per client.                               |
 | `RATE_LIMIT_WINDOW_MS` | no       | `60000`                    | Rate-limit window in milliseconds.                                |
 | `TRUST_PROXY`          | no       | `false`                    | Set `true` behind a reverse proxy/load balancer.                  |
+| `QUEUE_LOCK_MINUTES`        | no   | `5`                        | Lifetime of a worker's lock on a claimed item before it expires.  |
+| `QUEUE_HEARTBEAT_SECONDS`   | no   | `30`                       | How often workers refresh their lease via the heartbeat endpoint. |
+| `QUEUE_RECOVERY_BATCH_SIZE` | no   | `100`                      | Max expired locks reclaimed per recovery batch.                   |
+| `QUEUE_MAX_RETRIES`         | no   | `3`                        | Total attempts before an item moves to the Dead Letter Queue.     |
+| `QUEUE_RECOVERY_INTERVAL`   | no   | `60`                       | Seconds between background recovery sweeps.                        |
 | `SLACK_CLIENT_ID`      | prod¹    | `""`                       | Slack OAuth client id (Phase 2 install flow).                     |
 | `SLACK_CLIENT_SECRET`  | prod¹    | `""`                       | Slack OAuth client secret.                                        |
 | `SLACK_SIGNING_SECRET` | prod¹    | `""`                       | Slack request-signing secret (verifies inbound requests).        |

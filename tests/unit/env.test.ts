@@ -23,6 +23,27 @@ describe('environment validation', () => {
     expect(env.LOG_LEVEL).toBe('info');
     expect(env.RATE_LIMIT_MAX).toBe(100);
     expect(env.CORS_ORIGINS).toEqual(['*']);
+    expect(env.QUEUE_LOCK_MINUTES).toBe(5);
+    expect(env.QUEUE_HEARTBEAT_SECONDS).toBe(30);
+    expect(env.QUEUE_RECOVERY_BATCH_SIZE).toBe(100);
+    expect(env.QUEUE_MAX_RETRIES).toBe(3);
+    expect(env.QUEUE_RECOVERY_INTERVAL).toBe(60);
+  });
+
+  it('coerces the Phase 3B queue-processing variables', () => {
+    const env = parseEnv({
+      ...validEnv,
+      QUEUE_LOCK_MINUTES: '10',
+      QUEUE_HEARTBEAT_SECONDS: '15',
+      QUEUE_RECOVERY_BATCH_SIZE: '250',
+      QUEUE_MAX_RETRIES: '5',
+      QUEUE_RECOVERY_INTERVAL: '120',
+    });
+    expect(env.QUEUE_LOCK_MINUTES).toBe(10);
+    expect(env.QUEUE_HEARTBEAT_SECONDS).toBe(15);
+    expect(env.QUEUE_RECOVERY_BATCH_SIZE).toBe(250);
+    expect(env.QUEUE_MAX_RETRIES).toBe(5);
+    expect(env.QUEUE_RECOVERY_INTERVAL).toBe(120);
   });
 
   it('coerces numeric and boolean strings', () => {
