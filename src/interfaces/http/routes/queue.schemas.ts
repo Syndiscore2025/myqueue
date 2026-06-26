@@ -45,6 +45,11 @@ export const delaySchema = z.object({
   availableAt: z.coerce.date(),
 });
 
+/** Body for scheduling a New item to become claimable at a specific calendar time. */
+export const scheduleSchema = z.object({
+  scheduledFor: z.coerce.date(),
+});
+
 /** Body for a manual priority change. */
 export const updatePrioritySchema = z.object({
   priority: queuePrioritySchema,

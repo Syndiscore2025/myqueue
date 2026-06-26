@@ -22,6 +22,7 @@ import {
   permanentIdParamSchema,
   recalculateSchema,
   requeueDeadLetterSchema,
+  scheduleSchema,
   snoozeSchema,
   updatePrioritySchema,
   updateSettingsSchema,
@@ -181,6 +182,16 @@ queueRouter.get(
 );
 
 queueRouter.get(
+  '/scheduled',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { ownerWorkspaceUserId } = ownerQuerySchema.parse(req.query);
+    const items = await queueService.getScheduled(ctx, ownerWorkspaceUserId);
+    res.status(200).json({ items });
+  }),
+);
+
+queueRouter.get(
   '/completed-today',
   asyncHandler(async (req, res) => {
     const ctx = requireWorkspaceContext(req);
@@ -334,6 +345,17 @@ queueRouter.post(
     const { permanentQueueId } = permanentIdParamSchema.parse(req.params);
     const { availableAt } = delaySchema.parse(req.body);
     const item = await queueService.delay(ctx, permanentQueueId, availableAt);
+    res.status(200).json({ item });
+  }),
+);
+
+queueRouter.post(
+  '/items/:permanentQueueId/schedule',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { permanentQueueId } = permanentIdParamSchema.parse(req.params);
+    const { scheduledFor } = scheduleSchema.parse(req.body);
+    const item = await queueService.schedule(ctx, permanentQueueId, scheduledFor);
     res.status(200).json({ item });
   }),
 );

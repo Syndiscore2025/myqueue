@@ -20,6 +20,7 @@ interface Mocks {
     create: jest.Mock;
     findByPermanentId: jest.Mock;
     listByOwner: jest.Mock;
+    listScheduled: jest.Mock;
     updateScoped: jest.Mock;
   };
   events: { record: jest.Mock };
@@ -39,6 +40,7 @@ function build(): { svc: QueueService; m: Mocks } {
       create: jest.fn(),
       findByPermanentId: jest.fn(),
       listByOwner: jest.fn(),
+      listScheduled: jest.fn(),
       updateScoped: jest.fn(),
     },
     events: { record: jest.fn() },
@@ -371,6 +373,47 @@ describe('QueueService priority and assignment', () => {
     expect(m.events.record).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: QueueEventType.REASSIGNED }),
     );
+  });
+});
+
+describe('QueueService.schedule', () => {
+  const futureDate = new Date(Date.now() + 3_600_000);
+
+  it('sets scheduledFor and availableAt on a New item and records SCHEDULED event', async () => {
+    const { svc, m } = build();
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ status: QueueStatus.New }));
+    m.items.updateScoped.mockResolvedValue(
+      makeItem({ scheduledFor: futureDate, availableAt: futureDate }),
+    );
+
+    await svc.schedule(ctx, 'MQ-000001', futureDate);
+
+    expect(m.items.updateScoped).toHaveBeenCalledWith(
+      'w1',
+      'i1',
+      expect.objectContaining({ scheduledFor: futureDate, availableAt: futureDate }),
+    );
+    expect(m.events.record).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: QueueEventType.SCHEDULED }),
+    );
+  });
+
+  it('throws ConflictError when the item is not New', async () => {
+    const { svc, m } = build();
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ status: QueueStatus.Done }));
+
+    await expect(svc.schedule(ctx, 'MQ-000001', futureDate)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    expect(m.items.updateScoped).not.toHaveBeenCalled();
+    expect(m.events.record).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundError when the item does not exist', async () => {
+    const { svc, m } = build();
+    m.items.findByPermanentId.mockResolvedValue(null);
+
+    await expect(svc.schedule(ctx, 'MQ-000001', futureDate)).rejects.toBeInstanceOf(NotFoundError);
   });
 });
 

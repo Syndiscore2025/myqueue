@@ -230,6 +230,44 @@ export class QueueService {
   }
 
   /**
+   * Schedule a `New` item to become available at a specific calendar time.
+   * Sets both `scheduledFor` (the user-visible intent) and `availableAt` (the
+   * single claim gate). The item stays `New` but is excluded from claim selection
+   * and ranking until the time passes. Records a `SCHEDULED` audit event.
+   */
+  async schedule(
+    ctx: QueueContext,
+    permanentQueueId: string,
+    scheduledFor: Date,
+  ): Promise<QueueItem> {
+    const item = await this.requireItem(ctx, permanentQueueId);
+    if (item.status !== QueueStatus.New) {
+      throw new ConflictError(`Only New items can be scheduled (current status: "${item.status}")`);
+    }
+    const updated = await this.applyUpdate(ctx, item.id, {
+      scheduledFor,
+      availableAt: scheduledFor,
+    });
+    await this.events.record({
+      workspaceId: ctx.workspaceId,
+      queueItemId: item.id,
+      actorWorkspaceUserId: ctx.workspaceUserId,
+      eventType: QueueEventType.SCHEDULED,
+      previousValue: item.scheduledFor?.toISOString() ?? null,
+      newValue: scheduledFor.toISOString(),
+    });
+    return updated;
+  }
+
+  /**
+   * List items that have been explicitly scheduled to become available in the
+   * future. Optionally filtered to a single owner.
+   */
+  async getScheduled(ctx: QueueContext, ownerWorkspaceUserId?: string): Promise<QueueItem[]> {
+    return this.items.listScheduled(ctx.workspaceId, ownerWorkspaceUserId);
+  }
+
+  /**
    * Delay a `New` item until `availableAt`. The item stays `New` but is gated
    * out of both claim selection and active-queue ranking until the timestamp
    * passes. Records a `DELAYED` audit event.

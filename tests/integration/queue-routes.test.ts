@@ -23,6 +23,7 @@ jest.mock('../../src/application/queue', () => ({
     getActiveQueue: jest.fn(),
     getWaitingQueue: jest.fn(),
     getFollowUpQueue: jest.fn(),
+    getScheduled: jest.fn(),
     getCompletedToday: jest.fn(),
     recalculateForOwner: jest.fn(),
     getSettings: jest.fn(),
@@ -36,6 +37,8 @@ jest.mock('../../src/application/queue', () => ({
     unsnooze: jest.fn(),
     updatePriority: jest.fn(),
     assign: jest.fn(),
+    delay: jest.fn(),
+    schedule: jest.fn(),
   },
   queueClaimService: {
     claim: jest.fn(),
@@ -388,6 +391,56 @@ describe('queue statistics API', () => {
     const res = await request(app).get('/api/v1/queue/statistics');
     expect(res.status).toBe(401);
     expect(queueStatisticsService.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('queue API scheduled items', () => {
+  const scheduledAt = new Date(Date.now() + 3_600_000).toISOString();
+
+  it('schedules a New item and returns it', async () => {
+    mock(queueService.schedule).mockResolvedValue(item);
+    const res = await request(app)
+      .post('/api/v1/queue/items/MQ-000001/schedule')
+      .set(headers)
+      .send({ scheduledFor: scheduledAt });
+    expect(res.status).toBe(200);
+    expect(queueService.schedule).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workspaceUserId: 'u1' },
+      'MQ-000001',
+      new Date(scheduledAt),
+    );
+  });
+
+  it('rejects a schedule request missing scheduledFor (400)', async () => {
+    const res = await request(app)
+      .post('/api/v1/queue/items/MQ-000001/schedule')
+      .set(headers)
+      .send({});
+    expect(res.status).toBe(400);
+    expect(queueService.schedule).not.toHaveBeenCalled();
+  });
+
+  it('lists scheduled items for the workspace', async () => {
+    mock(queueService.getScheduled).mockResolvedValue([item]);
+    const res = await request(app).get('/api/v1/queue/scheduled').set(headers);
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(queueService.getScheduled).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workspaceUserId: 'u1' },
+      undefined,
+    );
+  });
+
+  it('passes ownerWorkspaceUserId filter for scheduled view', async () => {
+    mock(queueService.getScheduled).mockResolvedValue([]);
+    const res = await request(app)
+      .get('/api/v1/queue/scheduled?ownerWorkspaceUserId=u2')
+      .set(headers);
+    expect(res.status).toBe(200);
+    expect(queueService.getScheduled).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workspaceUserId: 'u1' },
+      'u2',
+    );
   });
 });
 

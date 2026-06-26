@@ -44,6 +44,8 @@ export interface QueueItemUpdate {
   availableAt?: Date | null;
   /** Phase 3C — delay expiry timestamp, co-set with availableAt when a delay is applied. */
   delayUntil?: Date | null;
+  /** Phase 3C — user-specified calendar time at which the item becomes claimable. */
+  scheduledFor?: Date | null;
 }
 
 /** Filters for listing an owner's items. */
@@ -454,6 +456,28 @@ export class QueueItemRepository {
         },
       },
     });
+  }
+
+  /**
+   * List `New` items whose `scheduledFor` is set and whose `availableAt` is still
+   * in the future. These are items that have been explicitly scheduled but not yet
+   * activated by the scheduler. Ordered by `scheduledFor` ascending (soonest first).
+   */
+  async listScheduled(
+    workspaceId: string,
+    ownerWorkspaceUserId?: string,
+    now: Date = new Date(),
+  ): Promise<QueueItem[]> {
+    const where: Prisma.QueueItemWhereInput = {
+      workspaceId,
+      status: QueueStatus.New,
+      scheduledFor: { not: null },
+      availableAt: { gt: now },
+    };
+    if (ownerWorkspaceUserId !== undefined) {
+      where.ownerWorkspaceUserId = ownerWorkspaceUserId;
+    }
+    return this.prisma.queueItem.findMany({ where, orderBy: { scheduledFor: 'asc' } });
   }
 
   /** List a workspace's dead-lettered items, oldest dead-lettered first. */
