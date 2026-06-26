@@ -1,5 +1,5 @@
-import type { Prisma, PrismaClient, QueueItem } from '@prisma/client';
-import { QueuePriority, QueueSourceType, QueueStatus } from '../../domain/queue';
+import { Prisma, type PrismaClient, type QueueItem } from '@prisma/client';
+import { QueuePriority, QueueRankingMode, QueueSourceType, QueueStatus } from '../../domain/queue';
 import { getPrisma } from '../database/prisma';
 
 /** Width of the zero-padded numeric portion of a permanent queue id. */
@@ -45,6 +45,16 @@ export interface QueueItemUpdate {
 /** Filters for listing an owner's items. */
 export interface ListByOwnerOptions {
   statuses?: readonly QueueStatus[];
+}
+
+/** Inputs for atomically claiming the next queued item for a worker. */
+export interface ClaimNextParams {
+  workspaceId: string;
+  workerId: string;
+  rankingMode: QueueRankingMode;
+  lockExpiresAt: Date;
+  /** Clock instant for the claim timestamps; defaults to now. */
+  now?: Date;
 }
 
 /**
@@ -132,6 +142,48 @@ export class QueueItemRepository {
       return null;
     }
     return this.prisma.queueItem.findFirst({ where: { id, workspaceId } });
+  }
+
+  /**
+   * Atomically claim the highest-ranked `New` item for a worker, moving it to
+   * `Processing` and stamping the lease. The candidate row is selected with
+   * `FOR UPDATE SKIP LOCKED` inside a transaction so concurrent workers never
+   * contend for or receive the same item — each skips rows already locked by
+   * another in-flight claim. Returns the updated item, or null when the
+   * workspace has no queued items available to claim.
+   */
+  async claimNext(params: ClaimNextParams): Promise<QueueItem | null> {
+    const now = params.now ?? new Date();
+    const orderBy =
+      params.rankingMode === QueueRankingMode.PRIORITY
+        ? Prisma.sql`"priority" ASC, "ranking_timestamp" ASC, "permanent_queue_id" ASC`
+        : Prisma.sql`"ranking_timestamp" ASC, "permanent_queue_id" ASC`;
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id"
+        FROM "queue_items"
+        WHERE "workspace_id" = ${params.workspaceId}
+          AND "status" = CAST(${QueueStatus.New} AS "QueueStatus")
+        ORDER BY ${orderBy}
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      `);
+      const candidate = rows[0];
+      if (candidate === undefined) {
+        return null;
+      }
+      return tx.queueItem.update({
+        where: { id: candidate.id },
+        data: {
+          status: QueueStatus.Processing,
+          claimedByWorkerId: params.workerId,
+          claimedAt: now,
+          heartbeatAt: now,
+          lockExpiresAt: params.lockExpiresAt,
+          processingStartedAt: now,
+        },
+      });
+    });
   }
 }
 

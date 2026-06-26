@@ -37,13 +37,15 @@ jest.mock('../../src/application/queue', () => ({
     updatePriority: jest.fn(),
     assign: jest.fn(),
   },
+  queueClaimService: { claim: jest.fn() },
 }));
 
 import { createApp } from '../../src/interfaces/http/app';
-import { queueService } from '../../src/application/queue';
+import { queueClaimService, queueService } from '../../src/application/queue';
 
 const app = createApp();
 const headers = { 'x-workspace-id': 'w1', 'x-workspace-user-id': 'u1' };
+const workerHeaders = { 'x-workspace-id': 'w1', 'x-worker-id': 'worker-1' };
 const item = { id: 'i1', permanentQueueId: 'MQ-000001', title: 'T', status: 'New' };
 const mock = (fn: unknown): jest.Mock => fn as jest.Mock;
 
@@ -161,6 +163,33 @@ describe('queue API mutations', () => {
   });
 });
 
+describe('queue API worker claim', () => {
+  it('rejects a claim without the worker id header (401)', async () => {
+    const res = await request(app).post('/api/v1/queue/claim').set('x-workspace-id', 'w1');
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('UNAUTHORIZED');
+    expect(queueClaimService.claim).not.toHaveBeenCalled();
+  });
+
+  it('claims the next item for a worker', async () => {
+    mock(queueClaimService.claim).mockResolvedValue(item);
+    const res = await request(app).post('/api/v1/queue/claim').set(workerHeaders);
+    expect(res.status).toBe(200);
+    expect(res.body.item.permanentQueueId).toBe('MQ-000001');
+    expect(queueClaimService.claim).toHaveBeenCalledWith({
+      workspaceId: 'w1',
+      workerId: 'worker-1',
+    });
+  });
+
+  it('returns a null item when nothing is queued', async () => {
+    mock(queueClaimService.claim).mockResolvedValue(null);
+    const res = await request(app).post('/api/v1/queue/claim').set(workerHeaders);
+    expect(res.status).toBe(200);
+    expect(res.body.item).toBeNull();
+  });
+});
+
 describe('queue API documentation', () => {
   it('documents the queue routes in the OpenAPI document', async () => {
     const res = await request(app).get('/openapi.json');
@@ -168,5 +197,6 @@ describe('queue API documentation', () => {
     expect(res.body.paths['/api/v1/queue/items']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/active']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/items/{permanentQueueId}/assign']).toBeDefined();
+    expect(res.body.paths['/api/v1/queue/claim']).toBeDefined();
   });
 });

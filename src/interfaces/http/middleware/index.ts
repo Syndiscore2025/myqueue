@@ -8,3 +8,4 @@ export {
   WORKSPACE_ID_HEADER,
   WORKSPACE_USER_ID_HEADER,
 } from './workspace-context';
+export { workerContext, requireWorkerContext, WORKER_ID_HEADER } from './worker-context';

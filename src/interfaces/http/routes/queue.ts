@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { queueService, type CreateItemInput } from '../../../application/queue';
+import { queueClaimService, queueService, type CreateItemInput } from '../../../application/queue';
 import { asyncHandler } from '../../../utils/async-handler';
+import { requireWorkerContext, workerContext } from '../middleware/worker-context';
 import { requireWorkspaceContext, workspaceContext } from '../middleware/workspace-context';
 import {
   assignSchema,
@@ -21,6 +22,19 @@ import {
  * headers rather than a real session (see the guard for the security caveat).
  */
 export const queueRouter = Router();
+
+// Worker-facing claim endpoint. Registered before the workspace-user guard so it
+// is guarded by {@link workerContext} (x-worker-id) rather than requiring an
+// acting workspace user — the worker itself is the actor.
+queueRouter.post(
+  '/claim',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const item = await queueClaimService.claim(ctx);
+    res.status(200).json({ item });
+  }),
+);
 
 queueRouter.use(workspaceContext);
 

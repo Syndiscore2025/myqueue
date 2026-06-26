@@ -32,6 +32,7 @@ export {
   type CreateQueueItemInput,
   type QueueItemUpdate,
   type ListByOwnerOptions,
+  type ClaimNextParams,
 } from './queue-item-repository';
 export {
   QueueEventRepository,

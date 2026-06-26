@@ -6,6 +6,7 @@ import {
 import { z } from 'zod';
 import { appInfo } from '../../config/app-info';
 import { env } from '../../config';
+import { WORKER_ID_HEADER } from './middleware/worker-context';
 import { WORKSPACE_ID_HEADER, WORKSPACE_USER_ID_HEADER } from './middleware/workspace-context';
 import {
   assignSchema,
@@ -338,6 +339,33 @@ registry.registerPath({
   responses: {
     200: { description: 'Updated queue settings.', content: json(SettingsEnvelope) },
     ...guarded,
+  },
+});
+
+// --- Queue worker processing (Phase 3B) --------------------------------------
+// Worker-facing routes identified by an explicit worker id rather than a user.
+
+const workerHeaders = z.object({
+  [WORKSPACE_ID_HEADER]: z.string().openapi({ description: 'Acting workspace (tenant) id.' }),
+  [WORKER_ID_HEADER]: z.string().openapi({ description: 'Claiming worker id.' }),
+});
+const ClaimEnvelope = z.object({ item: QueueItemSchema.nullable() });
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/claim',
+  summary: 'Claim the next queued item for a worker',
+  description:
+    'Atomically claims the highest-ranked New item (FOR UPDATE SKIP LOCKED), moving it to ' +
+    'Processing and stamping the lease. Returns { item: null } when nothing is queued.',
+  tags: ['Queue'],
+  request: { headers: workerHeaders },
+  responses: {
+    200: {
+      description: 'The claimed item, or null when the queue is empty.',
+      content: json(ClaimEnvelope),
+    },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
   },
 });
 
