@@ -1,4 +1,4 @@
-import type { PrismaClient, WorkspaceQueueSettings } from '@prisma/client';
+import { Prisma, type PrismaClient, type WorkspaceQueueSettings } from '@prisma/client';
 import type { QueueRankingMode } from '../../domain/queue';
 import { getPrisma } from '../database/prisma';
 
@@ -19,11 +19,26 @@ export class WorkspaceQueueSettingsRepository {
 
   /** Ensure a settings row exists for the workspace, returning it. */
   async ensure(workspaceId: string): Promise<WorkspaceQueueSettings> {
-    return this.prisma.workspaceQueueSettings.upsert({
-      where: { workspaceId },
-      create: { workspaceId },
-      update: {},
-    });
+    try {
+      return await this.prisma.workspaceQueueSettings.upsert({
+        where: { workspaceId },
+        create: { workspaceId },
+        update: {},
+      });
+    } catch (err) {
+      // Many workers making their first claim concurrently can race the upsert's
+      // create path and collide on the unique workspace_id. The row exists now,
+      // so re-read it rather than failing the claim.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const existing = await this.prisma.workspaceQueueSettings.findUnique({
+          where: { workspaceId },
+        });
+        if (existing !== null) {
+          return existing;
+        }
+      }
+      throw err;
+    }
   }
 
   /** Read the settings row for a workspace, or null if none exists yet. */
