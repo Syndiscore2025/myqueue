@@ -9,6 +9,14 @@ import { z } from 'zod';
  */
 const booleanFromString = z.enum(['true', 'false']).transform((value) => value === 'true');
 
+/** Split a comma-separated string into a trimmed, non-empty list. */
+function splitCsv(value: string): string[] {
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().max(65535).default(3000),
@@ -21,15 +29,7 @@ export const envSchema = z.object({
   ENCRYPTION_KEY: z
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, 'ENCRYPTION_KEY must be 64 hex characters (32 bytes)'),
-  CORS_ORIGINS: z
-    .string()
-    .default('*')
-    .transform((value) =>
-      value
-        .split(',')
-        .map((origin) => origin.trim())
-        .filter((origin) => origin.length > 0),
-    ),
+  CORS_ORIGINS: z.string().default('*').transform(splitCsv),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   TRUST_PROXY: booleanFromString.default('false'),
@@ -39,10 +39,34 @@ export const envSchema = z.object({
   SLACK_SIGNING_SECRET: z.string().default(''),
   SLACK_STATE_SECRET: z.string().default(''),
   SLACK_APP_TOKEN: z.string().default(''),
+  // Bot/user OAuth scopes requested during installation. Stored as CSV so the
+  // requested scope set can be changed without code changes.
+  SLACK_BOT_SCOPES: z
+    .string()
+    .default('commands,chat:write,users:read,team:read')
+    .transform(splitCsv),
+  SLACK_USER_SCOPES: z.string().default('').transform(splitCsv),
 
   STRIPE_SECRET_KEY: z.string().default(''),
   STRIPE_WEBHOOK_SECRET: z.string().default(''),
 });
+
+/** Slack OAuth credentials required for the installation flow to operate. */
+const REQUIRED_SLACK_KEYS = [
+  'SLACK_CLIENT_ID',
+  'SLACK_CLIENT_SECRET',
+  'SLACK_SIGNING_SECRET',
+  'SLACK_STATE_SECRET',
+] as const;
+
+/**
+ * Whether every Slack credential needed to run the OAuth/install flow is
+ * present. When false, the Slack surface is not mounted (e.g. local infra-only
+ * development) but the rest of the application still boots.
+ */
+export function isSlackConfigured(source: Env): boolean {
+  return REQUIRED_SLACK_KEYS.every((key) => source[key].length > 0);
+}
 
 export type Env = z.infer<typeof envSchema>;
 
@@ -60,5 +84,16 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
 
-  return result.data;
+  const parsed = result.data;
+
+  // Slack credentials are mandatory in production: the platform cannot serve
+  // its OAuth/install surface without them.
+  if (parsed.NODE_ENV === 'production' && !isSlackConfigured(parsed)) {
+    const missing = REQUIRED_SLACK_KEYS.filter((key) => parsed[key].length === 0);
+    throw new Error(
+      `Invalid environment configuration:\n  - Slack credentials are required in production. Missing: ${missing.join(', ')}`,
+    );
+  }
+
+  return parsed;
 }

@@ -1,4 +1,4 @@
-import { parseEnv } from '../../src/config/env';
+import { isSlackConfigured, parseEnv } from '../../src/config/env';
 
 const validEnv: NodeJS.ProcessEnv = {
   NODE_ENV: 'test',
@@ -6,6 +6,13 @@ const validEnv: NodeJS.ProcessEnv = {
   DATABASE_URL: 'postgresql://u:p@localhost:5432/db?schema=public',
   REDIS_URL: 'redis://localhost:6379',
   ENCRYPTION_KEY: '0'.repeat(64),
+};
+
+const slackEnv: NodeJS.ProcessEnv = {
+  SLACK_CLIENT_ID: 'client-id',
+  SLACK_CLIENT_SECRET: 'client-secret',
+  SLACK_SIGNING_SECRET: 'signing-secret',
+  SLACK_STATE_SECRET: 'state-secret',
 };
 
 describe('environment validation', () => {
@@ -43,5 +50,21 @@ describe('environment validation', () => {
 
   it('rejects an out-of-range port', () => {
     expect(() => parseEnv({ ...validEnv, PORT: '99999' })).toThrow();
+  });
+
+  it('applies the default Slack bot scopes as a parsed list', () => {
+    const env = parseEnv(validEnv);
+    expect(env.SLACK_BOT_SCOPES).toEqual(['commands', 'chat:write', 'users:read', 'team:read']);
+    expect(env.SLACK_USER_SCOPES).toEqual([]);
+  });
+
+  it('reports Slack as unconfigured without credentials and configured with them', () => {
+    expect(isSlackConfigured(parseEnv(validEnv))).toBe(false);
+    expect(isSlackConfigured(parseEnv({ ...validEnv, ...slackEnv }))).toBe(true);
+  });
+
+  it('requires Slack credentials in production', () => {
+    expect(() => parseEnv({ ...validEnv, NODE_ENV: 'production' })).toThrow(/Slack credentials/);
+    expect(() => parseEnv({ ...validEnv, ...slackEnv, NODE_ENV: 'production' })).not.toThrow();
   });
 });
