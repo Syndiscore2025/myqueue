@@ -88,6 +88,34 @@ export interface RecoverExpiredParams {
   now?: Date;
 }
 
+/** Inputs for a worker completing processing an item (Processing -> Done). */
+export interface CompleteProcessingParams {
+  workspaceId: string;
+  workerId: string;
+  permanentQueueId: string;
+  now?: Date;
+}
+
+/** Inputs for a worker gracefully releasing an item back to the queue (Processing -> New). */
+export interface ReleaseProcessingParams {
+  workspaceId: string;
+  workerId: string;
+  permanentQueueId: string;
+  now?: Date;
+}
+
+/** Inputs for a worker reporting that processing an item failed. */
+export interface FailProcessingParams {
+  workspaceId: string;
+  workerId: string;
+  permanentQueueId: string;
+  /** Status to apply: New (retry) or DeadLetter (exhausted). */
+  newStatus: QueueStatus;
+  lastError?: string | null;
+  lastErrorStack?: string | null;
+  now?: Date;
+}
+
 /**
  * Tenant-scoped persistence for queue items. Creation atomically mints a
  * per-workspace permanent id by incrementing the workspace's queue sequence
@@ -284,6 +312,99 @@ export class QueueItemRepository {
         q."attempt_count" AS "attemptCount",
         expired."previousWorkerId"
     `);
+  }
+
+  /** Complete processing an item (Processing -> Done), owned by the given worker. */
+  async completeProcessing(params: CompleteProcessingParams): Promise<QueueItem | null> {
+    const now = params.now ?? new Date();
+    const result = await this.prisma.queueItem.updateMany({
+      where: {
+        workspaceId: params.workspaceId,
+        permanentQueueId: params.permanentQueueId,
+        status: QueueStatus.Processing,
+        claimedByWorkerId: params.workerId,
+      },
+      data: {
+        status: QueueStatus.Done,
+        completedAt: now,
+        processingCompletedAt: now,
+        lockExpiresAt: null,
+        heartbeatAt: null,
+      },
+    });
+    if (result.count === 0) return null;
+    return this.prisma.queueItem.findUnique({
+      where: {
+        workspaceId_permanentQueueId: {
+          workspaceId: params.workspaceId,
+          permanentQueueId: params.permanentQueueId,
+        },
+      },
+    });
+  }
+
+  /** Release an item back to the queue without failure (Processing -> New). */
+  async releaseProcessing(params: ReleaseProcessingParams): Promise<QueueItem | null> {
+    const result = await this.prisma.queueItem.updateMany({
+      where: {
+        workspaceId: params.workspaceId,
+        permanentQueueId: params.permanentQueueId,
+        status: QueueStatus.Processing,
+        claimedByWorkerId: params.workerId,
+      },
+      data: {
+        status: QueueStatus.New,
+        claimedByWorkerId: null,
+        claimedAt: null,
+        heartbeatAt: null,
+        lockExpiresAt: null,
+        processingStartedAt: null,
+      },
+    });
+    if (result.count === 0) return null;
+    return this.prisma.queueItem.findUnique({
+      where: {
+        workspaceId_permanentQueueId: {
+          workspaceId: params.workspaceId,
+          permanentQueueId: params.permanentQueueId,
+        },
+      },
+    });
+  }
+
+  /** Record a failure and apply the determined next status (retry=New or DLQ=DeadLetter). */
+  async failProcessing(params: FailProcessingParams): Promise<QueueItem | null> {
+    const now = params.now ?? new Date();
+    const result = await this.prisma.queueItem.updateMany({
+      where: {
+        workspaceId: params.workspaceId,
+        permanentQueueId: params.permanentQueueId,
+        status: QueueStatus.Processing,
+        claimedByWorkerId: params.workerId,
+      },
+      data: {
+        status: params.newStatus,
+        attemptCount: { increment: 1 },
+        lastError: params.lastError ?? null,
+        lastErrorStack: params.lastErrorStack ?? null,
+        failedAt: now,
+        deadLetteredAt: params.newStatus === QueueStatus.DeadLetter ? now : null,
+        claimedByWorkerId: null,
+        claimedAt: null,
+        heartbeatAt: null,
+        lockExpiresAt: null,
+        processingStartedAt: null,
+      },
+    });
+    if (result.count === 0) return null;
+    return this.prisma.queueItem.findUnique({
+      where: {
+        workspaceId_permanentQueueId: {
+          workspaceId: params.workspaceId,
+          permanentQueueId: params.permanentQueueId,
+        },
+      },
+    });
   }
 }
 

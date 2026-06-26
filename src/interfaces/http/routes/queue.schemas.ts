@@ -77,3 +77,15 @@ export const permanentIdParamSchema = z.object({
 export const heartbeatSchema = z.object({
   permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
 });
+
+/** Body for a worker completing or releasing an item (names the item only). */
+export const workerItemSchema = z.object({
+  permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
+});
+
+/** Body for a worker reporting a processing failure. */
+export const failSchema = z.object({
+  permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
+  error: z.string().max(2000).nullish(),
+  errorStack: z.string().max(10_000).nullish(),
+});

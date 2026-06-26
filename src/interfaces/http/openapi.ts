@@ -13,8 +13,10 @@ import {
   changeStatusSchema,
   createItemSchema,
   followUpSchema,
+  failSchema,
   heartbeatSchema,
   permanentIdParamSchema,
+  workerItemSchema,
   queuePrioritySchema,
   queueRankingModeSchema,
   queueSourceTypeSchema,
@@ -389,6 +391,54 @@ registry.registerPath({
     409: { description: 'The item is not leased by this worker.', content: json(ErrorResponse) },
   },
 });
+
+const WorkerItemEnvelope = z.object({ item: QueueItemSchema });
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/complete',
+  summary: 'Mark an item as successfully completed by a worker',
+  tags: ['Queue'],
+  request: { headers: workerHeaders, body: { content: json(workerItemSchema) } },
+  responses: {
+    200: { description: 'The completed item.', content: json(WorkerItemEnvelope) },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
+    404: { description: 'No such item.', content: json(ErrorResponse) },
+    409: { description: 'Item not leased by this worker.', content: json(ErrorResponse) },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/release',
+  summary: 'Gracefully release an item back to the queue',
+  tags: ['Queue'],
+  request: { headers: workerHeaders, body: { content: json(workerItemSchema) } },
+  responses: {
+    200: { description: 'The released item.', content: json(WorkerItemEnvelope) },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
+    404: { description: 'No such item.', content: json(ErrorResponse) },
+    409: { description: 'Item not leased by this worker.', content: json(ErrorResponse) },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/fail',
+  summary: 'Report a processing failure; retries or moves to Dead Letter Queue',
+  description:
+    'Increments attempt_count. If attempts < QUEUE_MAX_RETRIES, re-queues the item (Processing → New). ' +
+    'Otherwise moves it to DeadLetter.',
+  tags: ['Queue'],
+  request: { headers: workerHeaders, body: { content: json(failSchema) } },
+  responses: {
+    200: { description: 'The failed/re-queued item.', content: json(WorkerItemEnvelope) },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
+    404: { description: 'No such item.', content: json(ErrorResponse) },
+    409: { description: 'Item not leased by this worker.', content: json(ErrorResponse) },
+  },
+});
+
 export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateDocument']> {
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({

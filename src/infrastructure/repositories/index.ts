@@ -36,6 +36,9 @@ export {
   type ExtendLeaseParams,
   type RecoveredItem,
   type RecoverExpiredParams,
+  type CompleteProcessingParams,
+  type ReleaseProcessingParams,
+  type FailProcessingParams,
 } from './queue-item-repository';
 export {
   QueueEventRepository,

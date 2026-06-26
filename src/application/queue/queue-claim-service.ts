@@ -117,6 +117,179 @@ export class QueueClaimService {
       `Queue item ${permanentQueueId} is not currently leased by worker ${ctx.workerId}`,
     );
   }
+
+  /** Helper: verify the given worker owns a Processing item, returning it or throwing. */
+  private async requireLeasedItem(
+    ctx: WorkerContext,
+    permanentQueueId: string,
+  ): Promise<QueueItem> {
+    const item = await this.items.findByPermanentId(ctx.workspaceId, permanentQueueId);
+    if (item === null) {
+      throw new NotFoundError(`Queue item ${permanentQueueId} not found`);
+    }
+    if (item.status !== QueueStatus.Processing || item.claimedByWorkerId !== ctx.workerId) {
+      throw new ConflictError(
+        `Queue item ${permanentQueueId} is not currently leased by worker ${ctx.workerId}`,
+      );
+    }
+    return item;
+  }
+
+  /**
+   * Complete processing an item (Processing → Done). Clears the lease and
+   * stamps processing completion timestamps. Throws NotFoundError if the item
+   * doesn't exist, or ConflictError if it is not leased by this worker.
+   */
+  async complete(ctx: WorkerContext, permanentQueueId: string): Promise<QueueItem> {
+    await this.requireLeasedItem(ctx, permanentQueueId);
+    const now = new Date();
+    const item = await this.items.completeProcessing({
+      workspaceId: ctx.workspaceId,
+      workerId: ctx.workerId,
+      permanentQueueId,
+      now,
+    });
+    if (item === null) {
+      throw new ConflictError(`Queue item ${permanentQueueId} state changed concurrently`);
+    }
+    await this.events.record({
+      workspaceId: ctx.workspaceId,
+      queueItemId: item.id,
+      eventType: QueueEventType.COMPLETED,
+      previousValue: QueueStatus.Processing,
+      newValue: QueueStatus.Done,
+      metadata: { workerId: ctx.workerId },
+    });
+    await this.publisher.publish({
+      type: 'QueueItemCompleted',
+      workspaceId: ctx.workspaceId,
+      queueItemId: item.id,
+      permanentQueueId: item.permanentQueueId,
+      workerId: ctx.workerId,
+      occurredAt: now,
+    });
+    return item;
+  }
+
+  /**
+   * Release an item back to the queue without marking it as failed
+   * (Processing → New). Attempt count is not incremented. Throws NotFoundError
+   * or ConflictError when the worker does not hold the lease.
+   */
+  async release(ctx: WorkerContext, permanentQueueId: string): Promise<QueueItem> {
+    await this.requireLeasedItem(ctx, permanentQueueId);
+    const now = new Date();
+    const item = await this.items.releaseProcessing({
+      workspaceId: ctx.workspaceId,
+      workerId: ctx.workerId,
+      permanentQueueId,
+      now,
+    });
+    if (item === null) {
+      throw new ConflictError(`Queue item ${permanentQueueId} state changed concurrently`);
+    }
+    await this.events.record({
+      workspaceId: ctx.workspaceId,
+      queueItemId: item.id,
+      eventType: QueueEventType.RELEASED,
+      previousValue: QueueStatus.Processing,
+      newValue: QueueStatus.New,
+      metadata: { workerId: ctx.workerId },
+    });
+    await this.publisher.publish({
+      type: 'QueueItemReleased',
+      workspaceId: ctx.workspaceId,
+      queueItemId: item.id,
+      permanentQueueId: item.permanentQueueId,
+      workerId: ctx.workerId,
+      occurredAt: now,
+    });
+    return item;
+  }
+
+  /**
+   * Report that processing an item failed. Increments the attempt count, then
+   * either re-queues it (Processing → New, RetryScheduled) when retries remain,
+   * or moves it to the Dead Letter Queue (Processing → DeadLetter, QueueItemFailed)
+   * when MAX_RETRIES is exhausted. Throws NotFoundError or ConflictError.
+   */
+  async fail(
+    ctx: WorkerContext,
+    permanentQueueId: string,
+    opts: { error?: string | null; errorStack?: string | null } = {},
+  ): Promise<QueueItem> {
+    const current = await this.requireLeasedItem(ctx, permanentQueueId);
+    const now = new Date();
+    const newAttemptCount = current.attemptCount + 1;
+    const isDeadLetter = newAttemptCount >= env.QUEUE_MAX_RETRIES;
+    const newStatus = isDeadLetter ? QueueStatus.DeadLetter : QueueStatus.New;
+    const item = await this.items.failProcessing({
+      workspaceId: ctx.workspaceId,
+      workerId: ctx.workerId,
+      permanentQueueId,
+      newStatus,
+      lastError: opts.error ?? null,
+      lastErrorStack: opts.errorStack ?? null,
+      now,
+    });
+    if (item === null) {
+      throw new ConflictError(`Queue item ${permanentQueueId} state changed concurrently`);
+    }
+    // Always record FAILED audit event; then follow-on event based on outcome.
+    await this.events.record({
+      workspaceId: ctx.workspaceId,
+      queueItemId: item.id,
+      eventType: QueueEventType.FAILED,
+      previousValue: QueueStatus.Processing,
+      newValue: newStatus,
+      metadata: {
+        workerId: ctx.workerId,
+        attemptCount: newAttemptCount,
+        error: opts.error ?? null,
+      },
+    });
+    if (isDeadLetter) {
+      await this.events.record({
+        workspaceId: ctx.workspaceId,
+        queueItemId: item.id,
+        eventType: QueueEventType.DEAD_LETTERED,
+        previousValue: QueueStatus.Processing,
+        newValue: QueueStatus.DeadLetter,
+        metadata: { workerId: ctx.workerId, attemptCount: newAttemptCount },
+      });
+    } else {
+      await this.events.record({
+        workspaceId: ctx.workspaceId,
+        queueItemId: item.id,
+        eventType: QueueEventType.RETRY_SCHEDULED,
+        previousValue: QueueStatus.Processing,
+        newValue: QueueStatus.New,
+        metadata: { workerId: ctx.workerId, attemptCount: newAttemptCount },
+      });
+    }
+    await this.publisher.publish({
+      type: 'QueueItemFailed',
+      workspaceId: ctx.workspaceId,
+      queueItemId: item.id,
+      permanentQueueId: item.permanentQueueId,
+      workerId: ctx.workerId,
+      attemptCount: newAttemptCount,
+      error: opts.error ?? null,
+      occurredAt: now,
+    });
+    if (!isDeadLetter) {
+      await this.publisher.publish({
+        type: 'RetryScheduled',
+        workspaceId: ctx.workspaceId,
+        queueItemId: item.id,
+        permanentQueueId: item.permanentQueueId,
+        workerId: ctx.workerId,
+        attemptCount: newAttemptCount,
+        occurredAt: now,
+      });
+    }
+    return item;
+  }
 }
 
 /** Process-wide claim service bound to the shared repository singletons. */

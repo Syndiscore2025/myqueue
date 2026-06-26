@@ -15,7 +15,14 @@ import type { WorkspaceQueueSettingsRepository } from '../../src/infrastructure/
 const ctx = { workspaceId: 'w1', workerId: 'worker-1' };
 
 interface Mocks {
-  items: { claimNext: jest.Mock; extendLease: jest.Mock; findByPermanentId: jest.Mock };
+  items: {
+    claimNext: jest.Mock;
+    extendLease: jest.Mock;
+    findByPermanentId: jest.Mock;
+    completeProcessing: jest.Mock;
+    releaseProcessing: jest.Mock;
+    failProcessing: jest.Mock;
+  };
   events: { record: jest.Mock };
   settings: { ensure: jest.Mock };
   publisher: { publish: jest.Mock };
@@ -27,7 +34,14 @@ function build(rankingMode: QueueRankingMode = QueueRankingMode.PRIORITY): {
   m: Mocks;
 } {
   const m: Mocks = {
-    items: { claimNext: jest.fn(), extendLease: jest.fn(), findByPermanentId: jest.fn() },
+    items: {
+      claimNext: jest.fn(),
+      extendLease: jest.fn(),
+      findByPermanentId: jest.fn(),
+      completeProcessing: jest.fn(),
+      releaseProcessing: jest.fn(),
+      failProcessing: jest.fn(),
+    },
     events: { record: jest.fn() },
     settings: { ensure: jest.fn() },
     publisher: { publish: jest.fn() },
@@ -187,5 +201,106 @@ describe('QueueClaimService.heartbeat', () => {
     m.items.findByPermanentId.mockResolvedValue(makeItem({ claimedByWorkerId: 'other' }));
 
     await expect(svc.heartbeat(ctx, 'MQ-000001')).rejects.toBeInstanceOf(ConflictError);
+  });
+});
+
+describe('QueueClaimService.complete', () => {
+  it('completes the item and records a COMPLETED event + publishes QueueItemCompleted', async () => {
+    const { svc, m } = build();
+    const doneItem = makeItem({ status: QueueStatus.Done });
+    m.items.findByPermanentId.mockResolvedValue(makeItem());
+    m.items.completeProcessing.mockResolvedValue(doneItem);
+
+    const result = await svc.complete(ctx, 'MQ-000001');
+
+    expect(result.status).toBe(QueueStatus.Done);
+    expect(m.events.record).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: QueueEventType.COMPLETED }),
+    );
+    expect(m.publisher.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'QueueItemCompleted', workerId: 'worker-1' }),
+    );
+  });
+
+  it('throws NotFoundError when the item does not exist', async () => {
+    const { svc, m } = build();
+    m.items.findByPermanentId.mockResolvedValue(null);
+    await expect(svc.complete(ctx, 'MQ-000001')).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe('QueueClaimService.release', () => {
+  it('releases the item back to New and records RELEASED event + publishes QueueItemReleased', async () => {
+    const { svc, m } = build();
+    const releasedItem = makeItem({ status: QueueStatus.New });
+    m.items.findByPermanentId.mockResolvedValue(makeItem());
+    m.items.releaseProcessing.mockResolvedValue(releasedItem);
+
+    const result = await svc.release(ctx, 'MQ-000001');
+
+    expect(result.status).toBe(QueueStatus.New);
+    expect(m.events.record).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: QueueEventType.RELEASED }),
+    );
+    expect(m.publisher.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'QueueItemReleased', workerId: 'worker-1' }),
+    );
+  });
+
+  it('throws ConflictError when the item is not leased by this worker', async () => {
+    const { svc, m } = build();
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ claimedByWorkerId: 'other' }));
+    await expect(svc.release(ctx, 'MQ-000001')).rejects.toBeInstanceOf(ConflictError);
+  });
+});
+
+describe('QueueClaimService.fail', () => {
+  it('requeues on failure when retries remain (records FAILED + RETRY_SCHEDULED)', async () => {
+    const { svc, m } = build();
+    const requeuedItem = makeItem({ status: QueueStatus.New, attemptCount: 1 });
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ attemptCount: 0 }));
+    m.items.failProcessing.mockResolvedValue(requeuedItem);
+
+    await svc.fail(ctx, 'MQ-000001', { error: 'timeout' });
+
+    expect(m.events.record).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: QueueEventType.FAILED }),
+    );
+    expect(m.events.record).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: QueueEventType.RETRY_SCHEDULED }),
+    );
+    expect(m.publisher.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'QueueItemFailed', attemptCount: 1 }),
+    );
+    expect(m.publisher.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'RetryScheduled', attemptCount: 1 }),
+    );
+  });
+
+  it('moves to DeadLetter when retry budget is exhausted (records FAILED + DEAD_LETTERED)', async () => {
+    const { svc, m } = build();
+    const env_ = await import('../../src/config');
+    const maxRetries = env_.env.QUEUE_MAX_RETRIES;
+    const dlqItem = makeItem({ status: QueueStatus.DeadLetter, attemptCount: maxRetries });
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ attemptCount: maxRetries - 1 }));
+    m.items.failProcessing.mockResolvedValue(dlqItem);
+
+    await svc.fail(ctx, 'MQ-000001');
+
+    expect(m.events.record).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: QueueEventType.DEAD_LETTERED }),
+    );
+    expect(m.publisher.publish).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'RetryScheduled' }),
+    );
+    expect(m.publisher.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'QueueItemFailed' }),
+    );
+  });
+
+  it('throws NotFoundError when the item does not exist', async () => {
+    const { svc, m } = build();
+    m.items.findByPermanentId.mockResolvedValue(null);
+    await expect(svc.fail(ctx, 'MQ-000001')).rejects.toBeInstanceOf(NotFoundError);
   });
 });

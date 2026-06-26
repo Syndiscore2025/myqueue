@@ -37,8 +37,49 @@ export interface QueueRecoveredEvent extends ProcessingEventBase {
   readonly attemptCount: number;
 }
 
+/** Emitted when a worker successfully completes processing an item (Processing -> Done). */
+export interface QueueItemCompletedEvent extends ProcessingEventBase {
+  readonly type: 'QueueItemCompleted';
+  readonly queueItemId: string;
+  readonly permanentQueueId: string;
+  readonly workerId: string;
+}
+
+/** Emitted when a worker gracefully releases an item back to the queue (Processing -> New). */
+export interface QueueItemReleasedEvent extends ProcessingEventBase {
+  readonly type: 'QueueItemReleased';
+  readonly queueItemId: string;
+  readonly permanentQueueId: string;
+  readonly workerId: string;
+}
+
+/** Emitted when a worker reports that processing an item failed. */
+export interface QueueItemFailedEvent extends ProcessingEventBase {
+  readonly type: 'QueueItemFailed';
+  readonly queueItemId: string;
+  readonly permanentQueueId: string;
+  readonly workerId: string;
+  readonly attemptCount: number;
+  readonly error: string | null;
+}
+
+/** Emitted when a failed item is re-queued because retry attempts remain. */
+export interface RetryScheduledEvent extends ProcessingEventBase {
+  readonly type: 'RetryScheduled';
+  readonly queueItemId: string;
+  readonly permanentQueueId: string;
+  readonly workerId: string;
+  readonly attemptCount: number;
+}
+
 /** Discriminated union of all queue processing events (extended per slice). */
-export type QueueProcessingEvent = QueueItemClaimedEvent | QueueRecoveredEvent;
+export type QueueProcessingEvent =
+  | QueueItemClaimedEvent
+  | QueueRecoveredEvent
+  | QueueItemCompletedEvent
+  | QueueItemReleasedEvent
+  | QueueItemFailedEvent
+  | RetryScheduledEvent;
 
 /** Publishes internal queue processing events to interested observers. */
 export interface EventPublisher {

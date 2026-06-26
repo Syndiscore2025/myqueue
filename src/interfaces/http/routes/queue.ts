@@ -8,8 +8,10 @@ import {
   changeStatusSchema,
   createItemSchema,
   followUpSchema,
+  failSchema,
   heartbeatSchema,
   ownerQuerySchema,
+  workerItemSchema,
   permanentIdParamSchema,
   recalculateSchema,
   snoozeSchema,
@@ -45,6 +47,45 @@ queueRouter.post(
     const ctx = requireWorkerContext(req);
     const body = heartbeatSchema.parse(req.body);
     const item = await queueClaimService.heartbeat(ctx, body.permanentQueueId);
+    res.status(200).json({ item });
+  }),
+);
+
+// Worker: mark the claimed item as successfully completed (Processing -> Done).
+queueRouter.post(
+  '/complete',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const body = workerItemSchema.parse(req.body);
+    const item = await queueClaimService.complete(ctx, body.permanentQueueId);
+    res.status(200).json({ item });
+  }),
+);
+
+// Worker: gracefully release the claimed item back to the queue (Processing -> New).
+queueRouter.post(
+  '/release',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const body = workerItemSchema.parse(req.body);
+    const item = await queueClaimService.release(ctx, body.permanentQueueId);
+    res.status(200).json({ item });
+  }),
+);
+
+// Worker: report a processing failure; retries if attempts remain, DLQ otherwise.
+queueRouter.post(
+  '/fail',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const body = failSchema.parse(req.body);
+    const item = await queueClaimService.fail(ctx, body.permanentQueueId, {
+      error: body.error ?? null,
+      errorStack: body.errorStack ?? null,
+    });
     res.status(200).json({ item });
   }),
 );

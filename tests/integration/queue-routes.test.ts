@@ -37,7 +37,13 @@ jest.mock('../../src/application/queue', () => ({
     updatePriority: jest.fn(),
     assign: jest.fn(),
   },
-  queueClaimService: { claim: jest.fn(), heartbeat: jest.fn() },
+  queueClaimService: {
+    claim: jest.fn(),
+    heartbeat: jest.fn(),
+    complete: jest.fn(),
+    release: jest.fn(),
+    fail: jest.fn(),
+  },
 }));
 
 import { createApp } from '../../src/interfaces/http/app';
@@ -220,6 +226,54 @@ describe('queue API worker claim', () => {
     expect(res.status).toBe(400);
     expect(queueClaimService.heartbeat).not.toHaveBeenCalled();
   });
+
+  it('completes an item for a worker', async () => {
+    mock(queueClaimService.complete).mockResolvedValue(item);
+    const res = await request(app)
+      .post('/api/v1/queue/complete')
+      .set(workerHeaders)
+      .send({ permanentQueueId: 'MQ-000001' });
+    expect(res.status).toBe(200);
+    expect(queueClaimService.complete).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workerId: 'worker-1' },
+      'MQ-000001',
+    );
+  });
+
+  it('releases an item for a worker', async () => {
+    mock(queueClaimService.release).mockResolvedValue(item);
+    const res = await request(app)
+      .post('/api/v1/queue/release')
+      .set(workerHeaders)
+      .send({ permanentQueueId: 'MQ-000001' });
+    expect(res.status).toBe(200);
+    expect(queueClaimService.release).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workerId: 'worker-1' },
+      'MQ-000001',
+    );
+  });
+
+  it('fails an item for a worker with error details', async () => {
+    mock(queueClaimService.fail).mockResolvedValue(item);
+    const res = await request(app)
+      .post('/api/v1/queue/fail')
+      .set(workerHeaders)
+      .send({ permanentQueueId: 'MQ-000001', error: 'boom', errorStack: 'stack...' });
+    expect(res.status).toBe(200);
+    expect(queueClaimService.fail).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workerId: 'worker-1' },
+      'MQ-000001',
+      { error: 'boom', errorStack: 'stack...' },
+    );
+  });
+
+  it('rejects complete without worker id header (401)', async () => {
+    const res = await request(app)
+      .post('/api/v1/queue/complete')
+      .set('x-workspace-id', 'w1')
+      .send({ permanentQueueId: 'MQ-000001' });
+    expect(res.status).toBe(401);
+  });
 });
 
 describe('queue API documentation', () => {
@@ -231,5 +285,8 @@ describe('queue API documentation', () => {
     expect(res.body.paths['/api/v1/queue/items/{permanentQueueId}/assign']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/claim']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/heartbeat']).toBeDefined();
+    expect(res.body.paths['/api/v1/queue/complete']).toBeDefined();
+    expect(res.body.paths['/api/v1/queue/release']).toBeDefined();
+    expect(res.body.paths['/api/v1/queue/fail']).toBeDefined();
   });
 });

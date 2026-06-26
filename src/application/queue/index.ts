@@ -20,6 +20,10 @@ export {
   type QueueProcessingEvent,
   type QueueItemClaimedEvent,
   type QueueRecoveredEvent,
+  type QueueItemCompletedEvent,
+  type QueueItemReleasedEvent,
+  type QueueItemFailedEvent,
+  type RetryScheduledEvent,
 } from './processing-events';
 export {
   QueueRecoveryService,
