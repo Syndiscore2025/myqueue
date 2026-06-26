@@ -72,6 +72,19 @@ export interface RetryScheduledEvent extends ProcessingEventBase {
   readonly attemptCount: number;
 }
 
+/**
+ * Emitted when a failed item exhausts its retry budget and is moved to the
+ * Dead Letter Queue (Processing -> DeadLetter), capturing the final failure.
+ */
+export interface DeadLetterCreatedEvent extends ProcessingEventBase {
+  readonly type: 'DeadLetterCreated';
+  readonly queueItemId: string;
+  readonly permanentQueueId: string;
+  readonly workerId: string;
+  readonly attemptCount: number;
+  readonly error: string | null;
+}
+
 /** Discriminated union of all queue processing events (extended per slice). */
 export type QueueProcessingEvent =
   | QueueItemClaimedEvent
@@ -79,7 +92,8 @@ export type QueueProcessingEvent =
   | QueueItemCompletedEvent
   | QueueItemReleasedEvent
   | QueueItemFailedEvent
-  | RetryScheduledEvent;
+  | RetryScheduledEvent
+  | DeadLetterCreatedEvent;
 
 /** Publishes internal queue processing events to interested observers. */
 export interface EventPublisher {

@@ -22,6 +22,7 @@ import {
   queueSourceTypeSchema,
   queueStatusSchema,
   recalculateSchema,
+  requeueDeadLetterSchema,
   snoozeSchema,
   updatePrioritySchema,
   updateSettingsSchema,
@@ -341,6 +342,39 @@ registry.registerPath({
   request: { headers: workspaceHeaders, body: { content: json(updateSettingsSchema) } },
   responses: {
     200: { description: 'Updated queue settings.', content: json(SettingsEnvelope) },
+    ...guarded,
+  },
+});
+
+// --- Dead Letter Queue (Phase 3B) --------------------------------------------
+// Operator-facing routes guarded by workspace context.
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/queue/dead-letter',
+  summary: 'List dead-lettered items',
+  description: 'Items that exhausted their retry budget, oldest dead-lettered first.',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The dead-lettered items.', content: json(ItemsEnvelope) },
+    ...guarded,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/dead-letter/requeue',
+  summary: 'Requeue a dead-lettered item',
+  description:
+    'Moves a DeadLetter item back to New, resetting attempt_count and clearing failure state ' +
+    'so it receives a fresh processing budget.',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders, body: { content: json(requeueDeadLetterSchema) } },
+  responses: {
+    200: { description: 'The requeued item.', content: json(ItemEnvelope) },
+    404: { description: 'No such item in the workspace.', content: json(ErrorResponse) },
+    409: { description: 'Item is not in the Dead Letter Queue.', content: json(ErrorResponse) },
     ...guarded,
   },
 });

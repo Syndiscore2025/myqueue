@@ -116,6 +116,13 @@ export interface FailProcessingParams {
   now?: Date;
 }
 
+/** Inputs for an operator requeuing a dead-lettered item (DeadLetter -> New). */
+export interface RequeueDeadLetterParams {
+  workspaceId: string;
+  permanentQueueId: string;
+  now?: Date;
+}
+
 /**
  * Tenant-scoped persistence for queue items. Creation atomically mints a
  * per-workspace permanent id by incrementing the workspace's queue sequence
@@ -394,6 +401,53 @@ export class QueueItemRepository {
         heartbeatAt: null,
         lockExpiresAt: null,
         processingStartedAt: null,
+      },
+    });
+    if (result.count === 0) return null;
+    return this.prisma.queueItem.findUnique({
+      where: {
+        workspaceId_permanentQueueId: {
+          workspaceId: params.workspaceId,
+          permanentQueueId: params.permanentQueueId,
+        },
+      },
+    });
+  }
+
+  /** List a workspace's dead-lettered items, oldest dead-lettered first. */
+  async listDeadLetter(workspaceId: string): Promise<QueueItem[]> {
+    return this.prisma.queueItem.findMany({
+      where: { workspaceId, status: QueueStatus.DeadLetter },
+      orderBy: { deadLetteredAt: 'asc' },
+    });
+  }
+
+  /**
+   * Requeue a dead-lettered item back to the queue (DeadLetter -> New),
+   * resetting the attempt count and clearing all failure/lease state so it gets
+   * a fresh processing budget. Returns null when no DeadLetter item with that id
+   * exists in the workspace.
+   */
+  async requeueFromDeadLetter(params: RequeueDeadLetterParams): Promise<QueueItem | null> {
+    const result = await this.prisma.queueItem.updateMany({
+      where: {
+        workspaceId: params.workspaceId,
+        permanentQueueId: params.permanentQueueId,
+        status: QueueStatus.DeadLetter,
+      },
+      data: {
+        status: QueueStatus.New,
+        attemptCount: 0,
+        lastError: null,
+        lastErrorStack: null,
+        failedAt: null,
+        deadLetteredAt: null,
+        claimedByWorkerId: null,
+        claimedAt: null,
+        heartbeatAt: null,
+        lockExpiresAt: null,
+        processingStartedAt: null,
+        processingCompletedAt: null,
       },
     });
     if (result.count === 0) return null;

@@ -89,3 +89,8 @@ export const failSchema = z.object({
   error: z.string().max(2000).nullish(),
   errorStack: z.string().max(10_000).nullish(),
 });
+
+/** Body for an operator requeuing a dead-lettered item back to the queue. */
+export const requeueDeadLetterSchema = z.object({
+  permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
+});

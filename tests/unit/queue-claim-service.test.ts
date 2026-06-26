@@ -296,6 +296,9 @@ describe('QueueClaimService.fail', () => {
     expect(m.publisher.publish).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'QueueItemFailed' }),
     );
+    expect(m.publisher.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'DeadLetterCreated', attemptCount: maxRetries }),
+    );
   });
 
   it('throws NotFoundError when the item does not exist', async () => {

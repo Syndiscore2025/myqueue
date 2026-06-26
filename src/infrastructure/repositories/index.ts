@@ -39,6 +39,7 @@ export {
   type CompleteProcessingParams,
   type ReleaseProcessingParams,
   type FailProcessingParams,
+  type RequeueDeadLetterParams,
 } from './queue-item-repository';
 export {
   QueueEventRepository,

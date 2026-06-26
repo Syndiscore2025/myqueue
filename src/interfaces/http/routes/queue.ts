@@ -1,5 +1,10 @@
 import { Router } from 'express';
-import { queueClaimService, queueService, type CreateItemInput } from '../../../application/queue';
+import {
+  queueClaimService,
+  queueDeadLetterService,
+  queueService,
+  type CreateItemInput,
+} from '../../../application/queue';
 import { asyncHandler } from '../../../utils/async-handler';
 import { requireWorkerContext, workerContext } from '../middleware/worker-context';
 import { requireWorkspaceContext, workspaceContext } from '../middleware/workspace-context';
@@ -14,6 +19,7 @@ import {
   workerItemSchema,
   permanentIdParamSchema,
   recalculateSchema,
+  requeueDeadLetterSchema,
   snoozeSchema,
   updatePrioritySchema,
   updateSettingsSchema,
@@ -91,6 +97,27 @@ queueRouter.post(
 );
 
 queueRouter.use(workspaceContext);
+
+// Operator: list the workspace's dead-lettered items.
+queueRouter.get(
+  '/dead-letter',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const items = await queueDeadLetterService.list(ctx);
+    res.status(200).json({ items });
+  }),
+);
+
+// Operator: requeue a dead-lettered item back to the queue (DeadLetter -> New).
+queueRouter.post(
+  '/dead-letter/requeue',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const body = requeueDeadLetterSchema.parse(req.body);
+    const item = await queueDeadLetterService.requeue(ctx, body.permanentQueueId);
+    res.status(200).json({ item });
+  }),
+);
 
 queueRouter.post(
   '/items',

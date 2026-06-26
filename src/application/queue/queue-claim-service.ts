@@ -277,7 +277,18 @@ export class QueueClaimService {
       error: opts.error ?? null,
       occurredAt: now,
     });
-    if (!isDeadLetter) {
+    if (isDeadLetter) {
+      await this.publisher.publish({
+        type: 'DeadLetterCreated',
+        workspaceId: ctx.workspaceId,
+        queueItemId: item.id,
+        permanentQueueId: item.permanentQueueId,
+        workerId: ctx.workerId,
+        attemptCount: newAttemptCount,
+        error: opts.error ?? null,
+        occurredAt: now,
+      });
+    } else {
       await this.publisher.publish({
         type: 'RetryScheduled',
         workspaceId: ctx.workspaceId,

@@ -44,10 +44,18 @@ jest.mock('../../src/application/queue', () => ({
     release: jest.fn(),
     fail: jest.fn(),
   },
+  queueDeadLetterService: {
+    list: jest.fn(),
+    requeue: jest.fn(),
+  },
 }));
 
 import { createApp } from '../../src/interfaces/http/app';
-import { queueClaimService, queueService } from '../../src/application/queue';
+import {
+  queueClaimService,
+  queueDeadLetterService,
+  queueService,
+} from '../../src/application/queue';
 
 const app = createApp();
 const headers = { 'x-workspace-id': 'w1', 'x-workspace-user-id': 'u1' };
@@ -276,6 +284,46 @@ describe('queue API worker claim', () => {
   });
 });
 
+describe('queue dead-letter API', () => {
+  it('lists dead-lettered items for the workspace', async () => {
+    mock(queueDeadLetterService.list).mockResolvedValue([item]);
+    const res = await request(app).get('/api/v1/queue/dead-letter').set(headers);
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(1);
+    expect(queueDeadLetterService.list).toHaveBeenCalledWith({
+      workspaceId: 'w1',
+      workspaceUserId: 'u1',
+    });
+  });
+
+  it('requeues a dead-lettered item', async () => {
+    mock(queueDeadLetterService.requeue).mockResolvedValue(item);
+    const res = await request(app)
+      .post('/api/v1/queue/dead-letter/requeue')
+      .set(headers)
+      .send({ permanentQueueId: 'MQ-000001' });
+    expect(res.status).toBe(200);
+    expect(queueDeadLetterService.requeue).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workspaceUserId: 'u1' },
+      'MQ-000001',
+    );
+  });
+
+  it('rejects requeue with a malformed permanent id (400)', async () => {
+    const res = await request(app)
+      .post('/api/v1/queue/dead-letter/requeue')
+      .set(headers)
+      .send({ permanentQueueId: 'nope' });
+    expect(res.status).toBe(400);
+    expect(queueDeadLetterService.requeue).not.toHaveBeenCalled();
+  });
+
+  it('rejects dead-letter listing without workspace context (401)', async () => {
+    const res = await request(app).get('/api/v1/queue/dead-letter');
+    expect(res.status).toBe(401);
+  });
+});
+
 describe('queue API documentation', () => {
   it('documents the queue routes in the OpenAPI document', async () => {
     const res = await request(app).get('/openapi.json');
@@ -288,5 +336,7 @@ describe('queue API documentation', () => {
     expect(res.body.paths['/api/v1/queue/complete']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/release']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/fail']).toBeDefined();
+    expect(res.body.paths['/api/v1/queue/dead-letter']).toBeDefined();
+    expect(res.body.paths['/api/v1/queue/dead-letter/requeue']).toBeDefined();
   });
 });
