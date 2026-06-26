@@ -460,6 +460,31 @@ export class QueueItemRepository {
       },
     });
   }
+
+  /**
+   * Count the items each worker is currently processing in a workspace, keyed by
+   * worker id. Derived live from item state so it never drifts from recovery,
+   * completion, or failure (which return items to other statuses). Workers with
+   * nothing in flight are simply absent from the map.
+   */
+  async countProcessingByWorker(workspaceId: string): Promise<Record<string, number>> {
+    const groups = await this.prisma.queueItem.groupBy({
+      by: ['claimedByWorkerId'],
+      where: {
+        workspaceId,
+        status: QueueStatus.Processing,
+        claimedByWorkerId: { not: null },
+      },
+      _count: { _all: true },
+    });
+    const counts: Record<string, number> = {};
+    for (const group of groups) {
+      if (group.claimedByWorkerId !== null) {
+        counts[group.claimedByWorkerId] = group._count._all;
+      }
+    }
+    return counts;
+  }
 }
 
 /** Process-wide queue item repository bound to the shared Prisma client. */

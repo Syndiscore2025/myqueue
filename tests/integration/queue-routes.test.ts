@@ -48,6 +48,10 @@ jest.mock('../../src/application/queue', () => ({
     list: jest.fn(),
     requeue: jest.fn(),
   },
+  workerRegistryService: {
+    list: jest.fn(),
+    register: jest.fn(),
+  },
 }));
 
 import { createApp } from '../../src/interfaces/http/app';
@@ -55,6 +59,7 @@ import {
   queueClaimService,
   queueDeadLetterService,
   queueService,
+  workerRegistryService,
 } from '../../src/application/queue';
 
 const app = createApp();
@@ -324,6 +329,34 @@ describe('queue dead-letter API', () => {
   });
 });
 
+describe('worker registry API', () => {
+  const worker = {
+    id: 'wr1',
+    workspaceId: 'w1',
+    workerId: 'worker-1',
+    hostname: 'host-a',
+    status: 'ACTIVE',
+    processingCount: 2,
+    startedAt: '2026-01-01T00:00:00.000Z',
+    lastSeenAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  it('lists the workspace registered workers', async () => {
+    mock(workerRegistryService.list).mockResolvedValue([worker]);
+    const res = await request(app).get('/api/v1/workers').set(headers);
+    expect(res.status).toBe(200);
+    expect(res.body.workers).toHaveLength(1);
+    expect(res.body.workers[0].workerId).toBe('worker-1');
+    expect(workerRegistryService.list).toHaveBeenCalledWith('w1');
+  });
+
+  it('rejects worker listing without workspace context (401)', async () => {
+    const res = await request(app).get('/api/v1/workers');
+    expect(res.status).toBe(401);
+    expect(workerRegistryService.list).not.toHaveBeenCalled();
+  });
+});
+
 describe('queue API documentation', () => {
   it('documents the queue routes in the OpenAPI document', async () => {
     const res = await request(app).get('/openapi.json');
@@ -338,5 +371,6 @@ describe('queue API documentation', () => {
     expect(res.body.paths['/api/v1/queue/fail']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/dead-letter']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/dead-letter/requeue']).toBeDefined();
+    expect(res.body.paths['/api/v1/workers']).toBeDefined();
   });
 });

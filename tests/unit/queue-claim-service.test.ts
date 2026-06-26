@@ -11,6 +11,7 @@ import {
 import type { QueueItemRepository } from '../../src/infrastructure/repositories/queue-item-repository';
 import type { QueueEventRepository } from '../../src/infrastructure/repositories/queue-event-repository';
 import type { WorkspaceQueueSettingsRepository } from '../../src/infrastructure/repositories/workspace-queue-settings-repository';
+import type { WorkerRegistryRepository } from '../../src/infrastructure/repositories/worker-registry-repository';
 
 const ctx = { workspaceId: 'w1', workerId: 'worker-1' };
 
@@ -26,6 +27,7 @@ interface Mocks {
   events: { record: jest.Mock };
   settings: { ensure: jest.Mock };
   publisher: { publish: jest.Mock };
+  registry: { register: jest.Mock };
 }
 
 /** Fresh mock collaborators plus a QueueClaimService wired to them. */
@@ -45,6 +47,7 @@ function build(rankingMode: QueueRankingMode = QueueRankingMode.PRIORITY): {
     events: { record: jest.fn() },
     settings: { ensure: jest.fn() },
     publisher: { publish: jest.fn() },
+    registry: { register: jest.fn() },
   };
   m.settings.ensure.mockResolvedValue({
     rankingMode,
@@ -56,6 +59,7 @@ function build(rankingMode: QueueRankingMode = QueueRankingMode.PRIORITY): {
     events: m.events as unknown as QueueEventRepository,
     settings: m.settings as unknown as WorkspaceQueueSettingsRepository,
     publisher: m.publisher,
+    registry: m.registry as unknown as WorkerRegistryRepository,
   };
   return { svc: new QueueClaimService(deps), m };
 }
@@ -164,6 +168,17 @@ describe('QueueClaimService.claim', () => {
 
     expect(m.items.claimNext.mock.calls[0]![0].rankingMode).toBe(QueueRankingMode.FIFO);
   });
+
+  it('auto-registers the worker even when the queue is empty', async () => {
+    const { svc, m } = build();
+    m.items.claimNext.mockResolvedValue(null);
+
+    await svc.claim(ctx);
+
+    expect(m.registry.register).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'w1', workerId: 'worker-1' }),
+    );
+  });
 });
 
 describe('QueueClaimService.heartbeat', () => {
@@ -201,6 +216,17 @@ describe('QueueClaimService.heartbeat', () => {
     m.items.findByPermanentId.mockResolvedValue(makeItem({ claimedByWorkerId: 'other' }));
 
     await expect(svc.heartbeat(ctx, 'MQ-000001')).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('auto-registers (refreshes) the worker on heartbeat', async () => {
+    const { svc, m } = build();
+    m.items.extendLease.mockResolvedValue(makeItem());
+
+    await svc.heartbeat(ctx, 'MQ-000001');
+
+    expect(m.registry.register).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'w1', workerId: 'worker-1' }),
+    );
   });
 });
 

@@ -4,6 +4,7 @@ import {
   QueueRankingMode,
   QueueSourceType,
   QueueStatus,
+  WorkerStatus,
 } from '../../../domain/queue';
 
 /** Reusable enum schemas mirroring the domain value sets. */
@@ -11,6 +12,7 @@ export const queueStatusSchema = z.nativeEnum(QueueStatus);
 export const queuePrioritySchema = z.nativeEnum(QueuePriority);
 export const queueSourceTypeSchema = z.nativeEnum(QueueSourceType);
 export const queueRankingModeSchema = z.nativeEnum(QueueRankingMode);
+export const workerStatusSchema = z.nativeEnum(WorkerStatus);
 
 /** Body for creating a queue item. Priority is auto-classified when omitted. */
 export const createItemSchema = z.object({

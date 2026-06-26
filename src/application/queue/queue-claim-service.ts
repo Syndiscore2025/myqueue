@@ -5,11 +5,13 @@ import { QueueEventType, QueueStatus } from '../../domain/queue';
 import type {
   QueueEventRepository,
   QueueItemRepository,
+  WorkerRegistryRepository,
   WorkspaceQueueSettingsRepository,
 } from '../../infrastructure/repositories';
 import {
   queueEventRepository,
   queueItemRepository,
+  workerRegistryRepository,
   workspaceQueueSettingsRepository,
 } from '../../infrastructure/repositories';
 import { eventPublisher, type EventPublisher } from './processing-events';
@@ -18,6 +20,8 @@ import { eventPublisher, type EventPublisher } from './processing-events';
 export interface WorkerContext {
   readonly workspaceId: string;
   readonly workerId: string;
+  /** Optional host the worker runs on, from X-Worker-Hostname, for the registry. */
+  readonly hostname?: string;
 }
 
 /** Collaborators the claim service orchestrates; injectable for testing. */
@@ -26,6 +30,7 @@ export interface QueueClaimServiceDeps {
   events?: QueueEventRepository;
   settings?: WorkspaceQueueSettingsRepository;
   publisher?: EventPublisher;
+  registry?: WorkerRegistryRepository;
 }
 
 const MILLIS_PER_MINUTE = 60_000;
@@ -42,12 +47,28 @@ export class QueueClaimService {
   private readonly events: QueueEventRepository;
   private readonly settings: WorkspaceQueueSettingsRepository;
   private readonly publisher: EventPublisher;
+  private readonly registry: WorkerRegistryRepository;
 
   constructor(deps: QueueClaimServiceDeps = {}) {
     this.items = deps.items ?? queueItemRepository;
     this.events = deps.events ?? queueEventRepository;
     this.settings = deps.settings ?? workspaceQueueSettingsRepository;
     this.publisher = deps.publisher ?? eventPublisher;
+    this.registry = deps.registry ?? workerRegistryRepository;
+  }
+
+  /**
+   * Auto-register the worker (or refresh its liveness), called on every claim
+   * and heartbeat so workers appear in the registry from their first activity
+   * and keep `lastSeenAt` current. See {@link WorkerRegistryService}.
+   */
+  private async touchWorker(ctx: WorkerContext, now: Date): Promise<void> {
+    await this.registry.register({
+      workspaceId: ctx.workspaceId,
+      workerId: ctx.workerId,
+      hostname: ctx.hostname ?? null,
+      now,
+    });
   }
 
   /**
@@ -58,6 +79,7 @@ export class QueueClaimService {
   async claim(ctx: WorkerContext): Promise<QueueItem | null> {
     const settings = await this.settings.ensure(ctx.workspaceId);
     const now = new Date();
+    await this.touchWorker(ctx, now);
     const lockExpiresAt = new Date(now.getTime() + env.QUEUE_LOCK_MINUTES * MILLIS_PER_MINUTE);
     const item = await this.items.claimNext({
       workspaceId: ctx.workspaceId,
@@ -98,6 +120,7 @@ export class QueueClaimService {
    */
   async heartbeat(ctx: WorkerContext, permanentQueueId: string): Promise<QueueItem> {
     const now = new Date();
+    await this.touchWorker(ctx, now);
     const lockExpiresAt = new Date(now.getTime() + env.QUEUE_LOCK_MINUTES * MILLIS_PER_MINUTE);
     const item = await this.items.extendLease({
       workspaceId: ctx.workspaceId,

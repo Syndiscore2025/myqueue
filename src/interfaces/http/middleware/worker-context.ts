@@ -6,6 +6,9 @@ import { WORKSPACE_ID_HEADER } from './workspace-context';
 /** Header carrying the claiming worker's identity. */
 export const WORKER_ID_HEADER = 'x-worker-id';
 
+/** Optional header carrying the worker's host, recorded in the worker registry. */
+export const WORKER_HOSTNAME_HEADER = 'x-worker-hostname';
+
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
@@ -45,7 +48,8 @@ export const workerContext: RequestHandler = (req, _res, next) => {
     );
     return;
   }
-  req.workerContext = { workspaceId, workerId };
+  const hostname = header(req, WORKER_HOSTNAME_HEADER);
+  req.workerContext = { workspaceId, workerId, ...(hostname === null ? {} : { hostname }) };
   next();
 };
 

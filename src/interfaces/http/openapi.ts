@@ -26,6 +26,7 @@ import {
   snoozeSchema,
   updatePrioritySchema,
   updateSettingsSchema,
+  workerStatusSchema,
 } from './routes/queue.schemas';
 
 extendZodWithOpenApi(z);
@@ -208,6 +209,26 @@ const QueueSettingsSchema = registry.register(
     includeWorkingInActive: z.boolean(),
   }),
 );
+
+const WorkerRegistrationSchema = registry.register(
+  'WorkerRegistration',
+  z.object({
+    id: z.string(),
+    workspaceId: z.string(),
+    workerId: z.string().openapi({ example: 'worker-1' }),
+    hostname: z.string().nullable(),
+    status: workerStatusSchema,
+    processingCount: z
+      .number()
+      .int()
+      .openapi({ description: 'Items the worker currently holds in Processing (derived live).' }),
+    startedAt: z.string(),
+    lastSeenAt: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+);
+const WorkersEnvelope = z.object({ workers: z.array(WorkerRegistrationSchema) });
 
 const RankedItem = z.object({ item: QueueItemSchema, position: z.number().int() });
 const ItemEnvelope = z.object({ item: QueueItemSchema });
@@ -470,6 +491,25 @@ registry.registerPath({
     401: { description: 'Missing worker context.', content: json(ErrorResponse) },
     404: { description: 'No such item.', content: json(ErrorResponse) },
     409: { description: 'Item not leased by this worker.', content: json(ErrorResponse) },
+  },
+});
+
+// --- Worker registry (Phase 3B) ----------------------------------------------
+// Operator-facing read of the workspace's known workers. Workers auto-register
+// on their first claim or heartbeat; this route is guarded by workspace context.
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/workers',
+  summary: 'List the workspace registered workers',
+  description:
+    'Workers auto-register on their first claim or heartbeat. Each entry carries a live ' +
+    'processing_count of the items the worker currently holds in Processing.',
+  tags: ['Workers'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The registered workers.', content: json(WorkersEnvelope) },
+    ...guarded,
   },
 });
 

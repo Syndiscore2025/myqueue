@@ -36,3 +36,8 @@ export {
   queueDeadLetterService,
   type QueueDeadLetterServiceDeps,
 } from './queue-dead-letter-service';
+export {
+  WorkerRegistryService,
+  workerRegistryService,
+  type WorkerRegistryServiceDeps,
+} from './worker-registry-service';

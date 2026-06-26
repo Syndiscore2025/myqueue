@@ -53,3 +53,8 @@ export {
   type PriorityHistoryEntry,
   type AssignmentEntry,
 } from './queue-history-repository';
+export {
+  WorkerRegistryRepository,
+  workerRegistryRepository,
+  type RegisterWorkerParams,
+} from './worker-registry-repository';
