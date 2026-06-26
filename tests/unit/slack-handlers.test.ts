@@ -26,6 +26,7 @@ import { slackIdentityService } from '../../src/application/slack';
 import { QueuePriority, QueueStatus } from '../../src/domain/queue';
 import { QueueView, SLACK_ACTION_IDS } from '../../src/interfaces/slack';
 import { registerAppHome } from '../../src/interfaces/slack/handlers/app-home';
+import { parseCommandView, registerCommands } from '../../src/interfaces/slack/handlers/commands';
 import {
   ACTION_ID_TO_ITEM_ACTION,
   applyItemAction,
@@ -149,5 +150,77 @@ describe('registerAppHome', () => {
       }),
     ).resolves.toBeUndefined();
     expect(publish).not.toHaveBeenCalled();
+  });
+});
+
+describe('parseCommandView', () => {
+  it.each([
+    ['', QueueView.All],
+    ['  ', QueueView.All],
+    ['ALL', QueueView.All],
+    ['red', QueueView.Red],
+    ['working', QueueView.Working],
+    ['follow up', QueueView.FollowUp],
+    ['follow-up', QueueView.FollowUp],
+    ['snoozed', QueueView.Snooze],
+    ['archived', QueueView.Archive],
+  ])('maps %p to the %s view', (text, view) => {
+    expect(parseCommandView(text)).toBe(view);
+  });
+
+  it('returns null for unknown arguments and help', () => {
+    expect(parseCommandView('help')).toBeNull();
+    expect(parseCommandView('nonsense')).toBeNull();
+  });
+});
+
+describe('registerCommands', () => {
+  type Handler = (args: unknown) => Promise<void>;
+  function capture(): Handler {
+    let handler: Handler | undefined;
+    const app = {
+      command: (_name: string, h: Handler) => {
+        handler = h;
+      },
+    } as unknown as App;
+    registerCommands(app);
+    return handler!;
+  }
+
+  it('acks then replies ephemerally with the requested view', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.getWorkingQueue).mockResolvedValue([item()]);
+    const ack = jest.fn();
+    const respond = jest.fn();
+    await capture()({
+      command: { text: 'working', user_id: 'U1' },
+      ack,
+      respond,
+      context: { teamId: 'T1' },
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    const reply = respond.mock.calls[0][0] as { response_type: string; blocks: unknown[] };
+    expect(reply.response_type).toBe('ephemeral');
+    expect(reply.blocks.length).toBeGreaterThan(0);
+    expect(queueService.getWorkingQueue).toHaveBeenCalledWith(ctx);
+  });
+
+  it('replies with the help hint for an unknown argument', async () => {
+    const ack = jest.fn();
+    const respond = jest.fn();
+    await capture()({ command: { text: 'help', user_id: 'U1' }, ack, respond, context: {} });
+    expect(slackIdentityService.resolveContext).not.toHaveBeenCalled();
+    const reply = respond.mock.calls[0][0] as { text: string };
+    expect(reply.text).toBe('MyQueue help');
+  });
+
+  it('reports an ephemeral error when the workspace is not installed', async () => {
+    mock(slackIdentityService.resolveContext).mockRejectedValue(new Error('not installed'));
+    const ack = jest.fn();
+    const respond = jest.fn();
+    await capture()({ command: { text: 'all', user_id: 'U1' }, ack, respond, context: {} });
+    expect(ack).toHaveBeenCalledTimes(1);
+    const reply = respond.mock.calls[0][0] as { text: string };
+    expect(reply.text).toContain('Could not load your queue');
   });
 });

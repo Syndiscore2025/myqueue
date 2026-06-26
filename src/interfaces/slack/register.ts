@@ -1,5 +1,6 @@
 import type { App } from '@slack/bolt';
 import { registerAppHome } from './handlers/app-home';
+import { registerCommands } from './handlers/commands';
 
 /**
  * Apps that have already had the MyQueue handlers attached. Registration is
@@ -20,4 +21,5 @@ export function registerSlackHandlers(app: App): void {
   registered.add(app);
 
   registerAppHome(app);
+  registerCommands(app);
 }
