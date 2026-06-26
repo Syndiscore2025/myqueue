@@ -13,6 +13,7 @@ import {
   securityHeaders,
 } from './middleware';
 import { healthRouter } from './routes/health';
+import { queueRouter } from './routes/queue';
 import { openApiDocument } from './openapi';
 
 /**
@@ -52,6 +53,10 @@ export function createApp(): Application {
 
   // Infrastructure routes.
   app.use(healthRouter);
+
+  // Application API. Internal/development-safe: tenant context is supplied via
+  // headers (see workspaceContext guard) until production session auth lands.
+  app.use('/api/v1/queue', queueRouter);
 
   // API documentation.
   app.get('/openapi.json', (_req, res) => {

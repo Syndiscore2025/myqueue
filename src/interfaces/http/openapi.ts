@@ -6,6 +6,22 @@ import {
 import { z } from 'zod';
 import { appInfo } from '../../config/app-info';
 import { env } from '../../config';
+import { WORKSPACE_ID_HEADER, WORKSPACE_USER_ID_HEADER } from './middleware/workspace-context';
+import {
+  assignSchema,
+  changeStatusSchema,
+  createItemSchema,
+  followUpSchema,
+  permanentIdParamSchema,
+  queuePrioritySchema,
+  queueRankingModeSchema,
+  queueSourceTypeSchema,
+  queueStatusSchema,
+  recalculateSchema,
+  snoozeSchema,
+  updatePrioritySchema,
+  updateSettingsSchema,
+} from './routes/queue.schemas';
 
 extendZodWithOpenApi(z);
 
@@ -139,6 +155,192 @@ registry.registerPath({
   },
 });
 
+// --- Queue API (Phase 3A) ----------------------------------------------------
+// Internal/development-safe routes guarded by explicit tenant headers.
+
+const ErrorResponse = registry.register(
+  'ErrorResponse',
+  z.object({
+    error: z.object({
+      code: z.string(),
+      message: z.string(),
+      requestId: z.string(),
+      details: z.unknown().optional(),
+    }),
+  }),
+);
+
+const QueueItemSchema = registry.register(
+  'QueueItem',
+  z.object({
+    id: z.string(),
+    workspaceId: z.string(),
+    permanentQueueId: z.string().openapi({ example: 'MQ-000123' }),
+    ownerWorkspaceUserId: z.string(),
+    creatorWorkspaceUserId: z.string().nullable(),
+    title: z.string(),
+    summary: z.string().nullable(),
+    status: queueStatusSchema,
+    priority: queuePrioritySchema,
+    sourceType: queueSourceTypeSchema,
+    rankingTimestamp: z.string(),
+    snoozedUntil: z.string().nullable(),
+    followUpDueAt: z.string().nullable(),
+    assignedAt: z.string().nullable(),
+    completedAt: z.string().nullable(),
+    archivedAt: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+);
+
+const QueueSettingsSchema = registry.register(
+  'WorkspaceQueueSettings',
+  z.object({
+    workspaceId: z.string(),
+    rankingMode: queueRankingModeSchema,
+    includeWaitingInActive: z.boolean(),
+    includeWorkingInActive: z.boolean(),
+  }),
+);
+
+const RankedItem = z.object({ item: QueueItemSchema, position: z.number().int() });
+const ItemEnvelope = z.object({ item: QueueItemSchema });
+const ItemWithPosition = z.object({
+  item: QueueItemSchema,
+  position: z.number().int().nullable(),
+});
+const ItemsEnvelope = z.object({ items: z.array(QueueItemSchema) });
+const RankedEnvelope = z.object({ items: z.array(RankedItem) });
+const SettingsEnvelope = z.object({ settings: QueueSettingsSchema });
+
+const workspaceHeaders = z.object({
+  [WORKSPACE_ID_HEADER]: z.string().openapi({ description: 'Acting workspace (tenant) id.' }),
+  [WORKSPACE_USER_ID_HEADER]: z.string().openapi({ description: 'Acting workspace user id.' }),
+});
+
+const guarded = {
+  400: { description: 'Request validation failed.', content: json(ErrorResponse) },
+  401: { description: 'Missing or invalid workspace context.', content: json(ErrorResponse) },
+};
+const ownerQueryParam = z.object({
+  ownerWorkspaceUserId: z
+    .string()
+    .optional()
+    .openapi({ description: 'Owner to scope the view to; defaults to the acting user.' }),
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/items',
+  summary: 'Create a queue item',
+  description: 'Creates an item; priority is auto-classified from the text when omitted.',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders, body: { content: json(createItemSchema) } },
+  responses: {
+    201: { description: 'Item created.', content: json(ItemEnvelope) },
+    ...guarded,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/queue/items/{permanentQueueId}',
+  summary: 'Get an item with its active-queue position',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders, params: permanentIdParamSchema },
+  responses: {
+    200: { description: 'The item and its computed position.', content: json(ItemWithPosition) },
+    404: { description: 'Item not found in this workspace.', content: json(ErrorResponse) },
+    ...guarded,
+  },
+});
+
+for (const view of ['active', 'waiting', 'follow-up', 'completed-today'] as const) {
+  registry.registerPath({
+    method: 'get',
+    path: `/api/v1/queue/${view}`,
+    summary: `List the ${view} queue`,
+    tags: ['Queue'],
+    request: { headers: workspaceHeaders, query: ownerQueryParam },
+    responses: {
+      200: {
+        description: 'Queue items.',
+        content: json(view === 'active' ? RankedEnvelope : ItemsEnvelope),
+      },
+      ...guarded,
+    },
+  });
+}
+
+const itemAction = (action: string, summary: string, body?: z.ZodTypeAny): void => {
+  registry.registerPath({
+    method: 'post',
+    path: `/api/v1/queue/items/{permanentQueueId}/${action}`,
+    summary,
+    tags: ['Queue'],
+    request: {
+      headers: workspaceHeaders,
+      params: permanentIdParamSchema,
+      ...(body === undefined ? {} : { body: { content: json(body) } }),
+    },
+    responses: {
+      200: { description: 'Updated item.', content: json(ItemEnvelope) },
+      404: { description: 'Item not found in this workspace.', content: json(ErrorResponse) },
+      ...guarded,
+    },
+  });
+};
+
+itemAction('status', 'Change item status', changeStatusSchema);
+itemAction('complete', 'Mark item done');
+itemAction('archive', 'Archive item');
+itemAction('waiting', 'Move item to waiting');
+itemAction('follow-up', 'Move item to follow-up', followUpSchema);
+itemAction('snooze', 'Snooze item', snoozeSchema);
+itemAction('unsnooze', 'Wake a snoozed item');
+itemAction('priority', 'Change item priority', updatePrioritySchema);
+itemAction('assign', 'Assign/reassign item owner', assignSchema);
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/recalculate',
+  summary: "Recalculate an owner's active queue positions",
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders, body: { content: json(recalculateSchema) } },
+  responses: {
+    200: {
+      description: 'Ranked items plus their count.',
+      content: json(RankedEnvelope.extend({ count: z.number().int() })),
+    },
+    ...guarded,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/queue/settings',
+  summary: 'Read workspace queue settings',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'Queue settings.', content: json(SettingsEnvelope) },
+    ...guarded,
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/api/v1/queue/settings',
+  summary: 'Update workspace queue settings',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders, body: { content: json(updateSettingsSchema) } },
+  responses: {
+    200: { description: 'Updated queue settings.', content: json(SettingsEnvelope) },
+    ...guarded,
+  },
+});
+
 /** Generate the OpenAPI 3.0 document for the MyQueue HTTP surface. */
 export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateDocument']> {
   const generator = new OpenApiGeneratorV3(registry.definitions);
@@ -148,7 +350,8 @@ export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateD
       title: 'MyQueue API',
       version: appInfo.version,
       description:
-        'MyQueue platform API: infrastructure probes and the Slack OAuth/install surface (Phase 2).',
+        'MyQueue platform API: infrastructure probes, the Slack OAuth/install surface ' +
+        '(Phase 2), and the internal queue API (Phase 3A).',
     },
     servers: [{ url: env.APP_BASE_URL }],
   });
