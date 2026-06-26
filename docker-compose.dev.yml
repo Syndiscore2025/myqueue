@@ -1,0 +1,43 @@
+# Development datastores only. Run the API and worker on the host via
+# `npm run dev` / `npm run dev:worker` against these containers.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+
+# Separate project name so dev datastores group under their own Docker section.
+name: myqueue-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-myqueue}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-myqueue}
+      POSTGRES_DB: ${POSTGRES_DB:-myqueue}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-myqueue} -d ${POSTGRES_DB:-myqueue}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-dev-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-dev-data:
+  redis-dev-data:

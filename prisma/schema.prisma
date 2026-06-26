@@ -1,0 +1,15 @@
+// MyQueue Prisma schema.
+//
+// Phase 1 establishes database *infrastructure* only. No application/domain
+// models are defined yet — those arrive in later phases. The datasource and
+// generator below are production-ready and the migration workflow is wired via
+// `npm run prisma:migrate` (migrate deploy) and `prisma migrate dev` locally.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
