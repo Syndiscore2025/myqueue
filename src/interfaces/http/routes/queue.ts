@@ -8,6 +8,7 @@ import {
   changeStatusSchema,
   createItemSchema,
   followUpSchema,
+  heartbeatSchema,
   ownerQuerySchema,
   permanentIdParamSchema,
   recalculateSchema,
@@ -32,6 +33,18 @@ queueRouter.post(
   asyncHandler(async (req, res) => {
     const ctx = requireWorkerContext(req);
     const item = await queueClaimService.claim(ctx);
+    res.status(200).json({ item });
+  }),
+);
+
+// Worker heartbeat extending the lease on the item the worker is processing.
+queueRouter.post(
+  '/heartbeat',
+  workerContext,
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkerContext(req);
+    const body = heartbeatSchema.parse(req.body);
+    const item = await queueClaimService.heartbeat(ctx, body.permanentQueueId);
     res.status(200).json({ item });
   }),
 );

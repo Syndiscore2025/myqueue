@@ -37,7 +37,7 @@ jest.mock('../../src/application/queue', () => ({
     updatePriority: jest.fn(),
     assign: jest.fn(),
   },
-  queueClaimService: { claim: jest.fn() },
+  queueClaimService: { claim: jest.fn(), heartbeat: jest.fn() },
 }));
 
 import { createApp } from '../../src/interfaces/http/app';
@@ -188,6 +188,38 @@ describe('queue API worker claim', () => {
     expect(res.status).toBe(200);
     expect(res.body.item).toBeNull();
   });
+
+  it('extends the lease for the worker on heartbeat', async () => {
+    mock(queueClaimService.heartbeat).mockResolvedValue(item);
+    const res = await request(app)
+      .post('/api/v1/queue/heartbeat')
+      .set(workerHeaders)
+      .send({ permanentQueueId: 'MQ-000001' });
+    expect(res.status).toBe(200);
+    expect(res.body.item.permanentQueueId).toBe('MQ-000001');
+    expect(queueClaimService.heartbeat).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workerId: 'worker-1' },
+      'MQ-000001',
+    );
+  });
+
+  it('rejects a heartbeat without the worker id header (401)', async () => {
+    const res = await request(app)
+      .post('/api/v1/queue/heartbeat')
+      .set('x-workspace-id', 'w1')
+      .send({ permanentQueueId: 'MQ-000001' });
+    expect(res.status).toBe(401);
+    expect(queueClaimService.heartbeat).not.toHaveBeenCalled();
+  });
+
+  it('rejects a heartbeat with a malformed permanent id (400)', async () => {
+    const res = await request(app)
+      .post('/api/v1/queue/heartbeat')
+      .set(workerHeaders)
+      .send({ permanentQueueId: 'nope' });
+    expect(res.status).toBe(400);
+    expect(queueClaimService.heartbeat).not.toHaveBeenCalled();
+  });
 });
 
 describe('queue API documentation', () => {
@@ -198,5 +230,6 @@ describe('queue API documentation', () => {
     expect(res.body.paths['/api/v1/queue/active']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/items/{permanentQueueId}/assign']).toBeDefined();
     expect(res.body.paths['/api/v1/queue/claim']).toBeDefined();
+    expect(res.body.paths['/api/v1/queue/heartbeat']).toBeDefined();
   });
 });

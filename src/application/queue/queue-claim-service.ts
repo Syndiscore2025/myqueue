@@ -1,5 +1,6 @@
 import type { QueueItem } from '@prisma/client';
 import { env } from '../../config';
+import { ConflictError, NotFoundError } from '../../domain/errors';
 import { QueueEventType, QueueStatus } from '../../domain/queue';
 import type {
   QueueEventRepository,
@@ -85,6 +86,36 @@ export class QueueClaimService {
       occurredAt: item.claimedAt ?? now,
     });
     return item;
+  }
+
+  /**
+   * Extend the lease on an item the worker is actively processing, refreshing
+   * its heartbeat and pushing back the lock expiry by {@link Env.QUEUE_LOCK_MINUTES}.
+   * Heartbeats are high-frequency liveness signals, so they intentionally emit no
+   * audit or processing event. Throws {@link NotFoundError} when the item does
+   * not exist in the workspace, or {@link ConflictError} when it is no longer
+   * leased by this worker (e.g. it was recovered after a missed heartbeat).
+   */
+  async heartbeat(ctx: WorkerContext, permanentQueueId: string): Promise<QueueItem> {
+    const now = new Date();
+    const lockExpiresAt = new Date(now.getTime() + env.QUEUE_LOCK_MINUTES * MILLIS_PER_MINUTE);
+    const item = await this.items.extendLease({
+      workspaceId: ctx.workspaceId,
+      workerId: ctx.workerId,
+      permanentQueueId,
+      heartbeatAt: now,
+      lockExpiresAt,
+    });
+    if (item !== null) {
+      return item;
+    }
+    const existing = await this.items.findByPermanentId(ctx.workspaceId, permanentQueueId);
+    if (existing === null) {
+      throw new NotFoundError(`Queue item ${permanentQueueId} not found`);
+    }
+    throw new ConflictError(
+      `Queue item ${permanentQueueId} is not currently leased by worker ${ctx.workerId}`,
+    );
   }
 }
 

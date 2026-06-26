@@ -57,6 +57,15 @@ export interface ClaimNextParams {
   now?: Date;
 }
 
+/** Inputs for extending the lease on an item a worker is actively processing. */
+export interface ExtendLeaseParams {
+  workspaceId: string;
+  workerId: string;
+  permanentQueueId: string;
+  heartbeatAt: Date;
+  lockExpiresAt: Date;
+}
+
 /**
  * Tenant-scoped persistence for queue items. Creation atomically mints a
  * per-workspace permanent id by incrementing the workspace's queue sequence
@@ -183,6 +192,37 @@ export class QueueItemRepository {
           processingStartedAt: now,
         },
       });
+    });
+  }
+
+  /**
+   * Extend the lease on an item the worker is actively processing, refreshing
+   * `heartbeat_at` and `lock_expires_at`. The update only applies when the item
+   * is still `Processing` and still owned by this worker, so a worker that has
+   * already lost its lease (e.g. recovered after a missed heartbeat) cannot
+   * silently reclaim it. Returns the refreshed item, or null when no matching
+   * leased row exists.
+   */
+  async extendLease(params: ExtendLeaseParams): Promise<QueueItem | null> {
+    const result = await this.prisma.queueItem.updateMany({
+      where: {
+        workspaceId: params.workspaceId,
+        permanentQueueId: params.permanentQueueId,
+        status: QueueStatus.Processing,
+        claimedByWorkerId: params.workerId,
+      },
+      data: { heartbeatAt: params.heartbeatAt, lockExpiresAt: params.lockExpiresAt },
+    });
+    if (result.count === 0) {
+      return null;
+    }
+    return this.prisma.queueItem.findUnique({
+      where: {
+        workspaceId_permanentQueueId: {
+          workspaceId: params.workspaceId,
+          permanentQueueId: params.permanentQueueId,
+        },
+      },
     });
   }
 }

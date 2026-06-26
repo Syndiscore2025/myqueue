@@ -1,6 +1,7 @@
 import type { QueueItem } from '@prisma/client';
 import { env } from '../../src/config';
 import { QueueClaimService, type QueueClaimServiceDeps } from '../../src/application/queue';
+import { ConflictError, NotFoundError } from '../../src/domain/errors';
 import {
   QueueEventType,
   QueuePriority,
@@ -14,7 +15,7 @@ import type { WorkspaceQueueSettingsRepository } from '../../src/infrastructure/
 const ctx = { workspaceId: 'w1', workerId: 'worker-1' };
 
 interface Mocks {
-  items: { claimNext: jest.Mock };
+  items: { claimNext: jest.Mock; extendLease: jest.Mock; findByPermanentId: jest.Mock };
   events: { record: jest.Mock };
   settings: { ensure: jest.Mock };
   publisher: { publish: jest.Mock };
@@ -26,7 +27,7 @@ function build(rankingMode: QueueRankingMode = QueueRankingMode.PRIORITY): {
   m: Mocks;
 } {
   const m: Mocks = {
-    items: { claimNext: jest.fn() },
+    items: { claimNext: jest.fn(), extendLease: jest.fn(), findByPermanentId: jest.fn() },
     events: { record: jest.fn() },
     settings: { ensure: jest.fn() },
     publisher: { publish: jest.fn() },
@@ -148,5 +149,43 @@ describe('QueueClaimService.claim', () => {
     await svc.claim(ctx);
 
     expect(m.items.claimNext.mock.calls[0]![0].rankingMode).toBe(QueueRankingMode.FIFO);
+  });
+});
+
+describe('QueueClaimService.heartbeat', () => {
+  it('extends the lease and emits no audit or processing event', async () => {
+    const { svc, m } = build();
+    const item = makeItem();
+    m.items.extendLease.mockResolvedValue(item);
+
+    const result = await svc.heartbeat(ctx, 'MQ-000001');
+
+    expect(result).toBe(item);
+    const args = m.items.extendLease.mock.calls[0]![0];
+    expect(args.workspaceId).toBe('w1');
+    expect(args.workerId).toBe('worker-1');
+    expect(args.permanentQueueId).toBe('MQ-000001');
+    expect(args.heartbeatAt).toBeInstanceOf(Date);
+    expect(args.lockExpiresAt.getTime() - args.heartbeatAt.getTime()).toBe(
+      env.QUEUE_LOCK_MINUTES * 60_000,
+    );
+    expect(m.events.record).not.toHaveBeenCalled();
+    expect(m.publisher.publish).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundError when the item does not exist in the workspace', async () => {
+    const { svc, m } = build();
+    m.items.extendLease.mockResolvedValue(null);
+    m.items.findByPermanentId.mockResolvedValue(null);
+
+    await expect(svc.heartbeat(ctx, 'MQ-000001')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('throws ConflictError when the item is no longer leased by this worker', async () => {
+    const { svc, m } = build();
+    m.items.extendLease.mockResolvedValue(null);
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ claimedByWorkerId: 'other' }));
+
+    await expect(svc.heartbeat(ctx, 'MQ-000001')).rejects.toBeInstanceOf(ConflictError);
   });
 });

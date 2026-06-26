@@ -72,3 +72,8 @@ export const ownerQuerySchema = z.object({
 export const permanentIdParamSchema = z.object({
   permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
 });
+
+/** Body for a worker heartbeat, naming the item whose lease to extend. */
+export const heartbeatSchema = z.object({
+  permanentQueueId: z.string().regex(/^MQ-\d{6,}$/),
+});

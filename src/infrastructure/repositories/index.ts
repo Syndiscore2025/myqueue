@@ -33,6 +33,7 @@ export {
   type QueueItemUpdate,
   type ListByOwnerOptions,
   type ClaimNextParams,
+  type ExtendLeaseParams,
 } from './queue-item-repository';
 export {
   QueueEventRepository,

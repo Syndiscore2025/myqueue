@@ -13,6 +13,7 @@ import {
   changeStatusSchema,
   createItemSchema,
   followUpSchema,
+  heartbeatSchema,
   permanentIdParamSchema,
   queuePrioritySchema,
   queueRankingModeSchema,
@@ -369,7 +370,25 @@ registry.registerPath({
   },
 });
 
-/** Generate the OpenAPI 3.0 document for the MyQueue HTTP surface. */
+const HeartbeatEnvelope = z.object({ item: QueueItemSchema });
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/queue/heartbeat',
+  summary: 'Extend the lease on an item a worker is processing',
+  description:
+    'Refreshes heartbeat_at and pushes back lock_expires_at for the named item, provided it ' +
+    'is still Processing and still leased by this worker. Workers that stop heartbeating ' +
+    'become recoverable.',
+  tags: ['Queue'],
+  request: { headers: workerHeaders, body: { content: json(heartbeatSchema) } },
+  responses: {
+    200: { description: 'The item with its refreshed lease.', content: json(HeartbeatEnvelope) },
+    401: { description: 'Missing worker context.', content: json(ErrorResponse) },
+    404: { description: 'No such item in the workspace.', content: json(ErrorResponse) },
+    409: { description: 'The item is not leased by this worker.', content: json(ErrorResponse) },
+  },
+});
 export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateDocument']> {
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({
