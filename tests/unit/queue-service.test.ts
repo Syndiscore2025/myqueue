@@ -290,7 +290,7 @@ describe('QueueService status lifecycle', () => {
     );
   });
 
-  it('snoozes an item with the requested wake time', async () => {
+  it('snoozes an item with the requested wake time and sets availableAt to the same time', async () => {
     const { svc, m } = build();
     const until = new Date('2026-06-01T00:00:00Z');
     m.items.findByPermanentId.mockResolvedValue(makeItem({ status: QueueStatus.New }));
@@ -301,12 +301,14 @@ describe('QueueService status lifecycle', () => {
     const changes = m.items.updateScoped.mock.calls[0]![2];
     expect(changes.status).toBe(QueueStatus.Snoozed);
     expect(changes.snoozedUntil).toBe(until);
+    // Phase 3C: claim gate must equal the snooze wake time.
+    expect(changes.availableAt).toBe(until);
     expect(m.events.record).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: QueueEventType.SNOOZED }),
     );
   });
 
-  it('unsnoozes back to New, clearing the snooze time with an UNSNOOZED event', async () => {
+  it('unsnoozes back to New, clearing snoozedUntil and availableAt with an UNSNOOZED event', async () => {
     const { svc, m } = build();
     m.items.findByPermanentId.mockResolvedValue(makeItem({ status: QueueStatus.Snoozed }));
     m.items.updateScoped.mockResolvedValue(makeItem({ status: QueueStatus.New }));
@@ -316,6 +318,8 @@ describe('QueueService status lifecycle', () => {
     const changes = m.items.updateScoped.mock.calls[0]![2];
     expect(changes.status).toBe(QueueStatus.New);
     expect(changes.snoozedUntil).toBeNull();
+    // Phase 3C: claim gate must be cleared so the item re-enters the active queue.
+    expect(changes.availableAt).toBeNull();
     expect(m.events.record).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: QueueEventType.UNSNOOZED }),
     );

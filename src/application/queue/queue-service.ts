@@ -476,12 +476,18 @@ export class QueueService {
     }
     if (toStatus === QueueStatus.Snoozed) {
       changes.snoozedUntil = options.snoozedUntil ?? null;
+      // Phase 3C: gate the claim engine on the snooze wake-up time so snoozed
+      // items are automatically skipped by workers until the scheduler activates them.
+      changes.availableAt = options.snoozedUntil ?? null;
     }
     if (toStatus === QueueStatus.FollowUp) {
       changes.followUpDueAt = options.followUpDueAt ?? null;
     }
     if (options.clearSnoozedUntil === true) {
       changes.snoozedUntil = null;
+      // Phase 3C: clear the claim gate when un-snoozing so the item re-enters
+      // the active queue immediately.
+      changes.availableAt = null;
     }
     return changes;
   }
