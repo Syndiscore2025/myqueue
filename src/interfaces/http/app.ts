@@ -1,6 +1,8 @@
 import express, { type Application } from 'express';
 import swaggerUi from 'swagger-ui-express';
-import { env } from '../../config';
+import { env, slackConfigured } from '../../config';
+import { getSlackApp } from '../../infrastructure/slack';
+import { logger } from '../../utils/logger';
 import {
   compressionMiddleware,
   corsMiddleware,
@@ -32,6 +34,18 @@ export function createApp(): Application {
   app.use(securityHeaders);
   app.use(corsMiddleware);
   app.use(compressionMiddleware);
+
+  // Slack surface. Mounted before the JSON/urlencoded body parsers so Bolt's
+  // ExpressReceiver can verify request signatures against the raw body, and
+  // before the rate limiter so Slack's event retries are never throttled. Only
+  // mounted when Slack credentials are present (e.g. omitted in infra-only or
+  // test environments).
+  if (slackConfigured) {
+    const { receiver } = getSlackApp();
+    app.use(receiver.router);
+    logger.info('Slack surface mounted (events, install, oauth_redirect)');
+  }
+
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(rateLimiter);

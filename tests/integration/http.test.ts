@@ -7,6 +7,9 @@ jest.mock('../../src/infrastructure/database/prisma', () => ({
   checkDatabaseHealth: () => checkDatabaseHealth(),
   connectDatabase: jest.fn(),
   disconnectDatabase: jest.fn(),
+  // The repository singletons construct lazily against getPrisma() at import
+  // time; the HTTP suite never touches the database, so a stub client suffices.
+  getPrisma: jest.fn(() => ({})),
 }));
 
 jest.mock('../../src/infrastructure/redis/redis', () => ({

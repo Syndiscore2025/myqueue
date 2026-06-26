@@ -1,9 +1,9 @@
 // MyQueue Prisma schema.
 //
-// Phase 1 establishes database *infrastructure* only. No application/domain
-// models are defined yet — those arrive in later phases. The datasource and
-// generator below are production-ready and the migration workflow is wired via
-// `npm run prisma:migrate` (migrate deploy) and `prisma migrate dev` locally.
+// Phase 2 introduces the multi-tenant Slack installation platform. Every tenant
+// is a Slack workspace; all tenant-owned rows reference a Workspace and are
+// removed via cascade when a workspace is deleted. Slack tokens are NEVER stored
+// in plaintext — only AES-256-GCM ciphertext columns are persisted.
 
 generator client {
   provider = "prisma-client-js"
@@ -12,4 +12,138 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+/// Lifecycle state of a tenant workspace.
+enum WorkspaceStatus {
+  ACTIVE
+  SUSPENDED
+  UNINSTALLED
+}
+
+/// Auditable platform actions recorded per workspace.
+enum AuditAction {
+  APP_INSTALLED
+  APP_REINSTALLED
+  APP_UNINSTALLED
+  TOKENS_REVOKED
+  SETTINGS_UPDATED
+}
+
+/// A tenant: one Slack workspace (or enterprise-grid org) installation.
+model Workspace {
+  id                  String          @id @default(cuid())
+  slackTeamId         String?         @unique @map("slack_team_id")
+  slackTeamName       String?         @map("slack_team_name")
+  slackEnterpriseId   String?         @unique @map("slack_enterprise_id")
+  slackEnterpriseName String?         @map("slack_enterprise_name")
+  isEnterpriseInstall Boolean         @default(false) @map("is_enterprise_install")
+  status              WorkspaceStatus @default(ACTIVE)
+  installedAt         DateTime        @default(now()) @map("installed_at")
+  uninstalledAt       DateTime?       @map("uninstalled_at")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  installation SlackInstallation?
+  settings     WorkspaceSettings?
+  users        WorkspaceUser[]
+  auditLogs    WorkspaceAuditLog[]
+
+  @@map("workspaces")
+}
+
+/// Encrypted Slack OAuth installation for a workspace. Tokens are stored only as
+/// AES-256-GCM ciphertext; structured, non-sensitive metadata is kept in columns
+/// so an Installation can be faithfully reconstructed for the Bolt SDK.
+model SlackInstallation {
+  id                  String  @id @default(cuid())
+  workspaceId         String  @unique @map("workspace_id")
+  appId               String? @map("app_id")
+  authVersion         String  @default("v2") @map("auth_version")
+  tokenType           String? @map("token_type")
+  isEnterpriseInstall Boolean @default(false) @map("is_enterprise_install")
+  enterpriseUrl       String? @map("enterprise_url")
+
+  botId                     String?   @map("bot_id")
+  botUserId                 String?   @map("bot_user_id")
+  botScopes                 String[]  @map("bot_scopes")
+  botTokenCiphertext        String?   @map("bot_token_ciphertext")
+  botRefreshTokenCiphertext String?   @map("bot_refresh_token_ciphertext")
+  botTokenExpiresAt         DateTime? @map("bot_token_expires_at")
+
+  installerUserId            String?   @map("installer_user_id")
+  userScopes                 String[]  @map("user_scopes")
+  userTokenCiphertext        String?   @map("user_token_ciphertext")
+  userRefreshTokenCiphertext String?   @map("user_refresh_token_ciphertext")
+  userTokenExpiresAt         DateTime? @map("user_token_expires_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("slack_installations")
+}
+
+/// Per-workspace configuration.
+model WorkspaceSettings {
+  id               String   @id @default(cuid())
+  workspaceId      String   @unique @map("workspace_id")
+  timezone         String   @default("UTC")
+  locale           String   @default("en-US")
+  defaultChannelId String?  @map("default_channel_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_settings")
+}
+
+/// A Slack user known within a workspace (installer/admins recorded at install).
+model WorkspaceUser {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  slackUserId String   @map("slack_user_id")
+  displayName String?  @map("display_name")
+  isAdmin     Boolean  @default(false) @map("is_admin")
+  isInstaller Boolean  @default(false) @map("is_installer")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, slackUserId])
+  @@index([workspaceId])
+  @@map("workspace_users")
+}
+
+/// Short-lived, single-use OAuth state values for CSRF protection during the
+/// install flow. The signed install options are persisted as JSON.
+model OAuthState {
+  id         String    @id @default(cuid())
+  state      String    @unique
+  payload    Json
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("oauth_states")
+}
+
+/// Append-only audit trail of platform actions, scoped per workspace.
+model WorkspaceAuditLog {
+  id               String      @id @default(cuid())
+  workspaceId      String      @map("workspace_id")
+  action           AuditAction
+  actorSlackUserId String?     @map("actor_slack_user_id")
+  metadata         Json?
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@map("workspace_audit_logs")
 }
