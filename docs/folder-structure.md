@@ -5,7 +5,8 @@
 ├── .github/workflows/ci.yml      # CI: lint, typecheck, test, build, docker
 ├── docs/                         # Project documentation
 ├── prisma/
-│   └── schema.prisma             # Datasource + generator (no models yet)
+│   ├── schema.prisma             # Datasource + multi-tenant Slack models
+│   └── migrations/               # SQL migrations
 ├── scripts/
 │   └── clean.mjs                 # Build/coverage cleanup
 ├── src/
@@ -18,10 +19,13 @@
 │   ├── application/              # Use cases (added in later phases)
 │   ├── infrastructure/
 │   │   ├── database/prisma.ts    # Prisma client + health
-│   │   └── redis/redis.ts        # Redis connections + health
+│   │   ├── redis/redis.ts        # Redis connections + health
+│   │   ├── crypto/               # AES-256-GCM TokenService (token encryption)
+│   │   ├── repositories/         # Tenant-scoped Prisma repositories
+│   │   └── slack/                # Bolt app, InstallationStore, StateStore
 │   ├── interfaces/
 │   │   └── http/
-│   │       ├── app.ts            # Express app assembly
+│   │       ├── app.ts            # Express app assembly (+ Slack receiver mount)
 │   │       ├── openapi.ts        # OpenAPI document (from Zod)
 │   │       ├── middleware/       # security, logging, rate limit, errors
 │   │       └── routes/health.ts  # /health, /ready, /version
