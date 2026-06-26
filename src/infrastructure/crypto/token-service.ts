@@ -22,7 +22,9 @@ export class TokenService {
   constructor(keyHex: string) {
     const key = Buffer.from(keyHex, 'hex');
     if (key.length !== KEY_BYTES) {
-      throw new Error(`TokenService requires a ${KEY_BYTES}-byte hex key (got ${key.length} bytes)`);
+      throw new Error(
+        `TokenService requires a ${KEY_BYTES}-byte hex key (got ${key.length} bytes)`,
+      );
     }
     this.key = key;
   }
