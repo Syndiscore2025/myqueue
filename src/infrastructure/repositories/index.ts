@@ -34,6 +34,8 @@ export {
   type ListByOwnerOptions,
   type ClaimNextParams,
   type ExtendLeaseParams,
+  type RecoveredItem,
+  type RecoverExpiredParams,
 } from './queue-item-repository';
 export {
   QueueEventRepository,

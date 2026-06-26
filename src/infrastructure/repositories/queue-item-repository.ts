@@ -67,6 +67,28 @@ export interface ExtendLeaseParams {
 }
 
 /**
+ * A queue item that was reclaimed by the recovery sweep, carrying only the fields
+ * required for subsequent auditing and event emission.
+ */
+export interface RecoveredItem {
+  id: string;
+  workspaceId: string;
+  permanentQueueId: string;
+  /** Attempt count AFTER incrementing (i.e. the new value stamped on the row). */
+  attemptCount: number;
+  /** The worker id that held the lease before recovery (may be null). */
+  previousWorkerId: string | null;
+}
+
+/** Inputs for a single batch recovery sweep. */
+export interface RecoverExpiredParams {
+  /** Maximum number of expired-lock rows to reclaim in this sweep. */
+  batchSize: number;
+  /** Clock instant used as the "now" threshold; defaults to new Date(). */
+  now?: Date;
+}
+
+/**
  * Tenant-scoped persistence for queue items. Creation atomically mints a
  * per-workspace permanent id by incrementing the workspace's queue sequence
  * counter inside a transaction. All reads and writes are scoped by workspaceId.
@@ -224,6 +246,44 @@ export class QueueItemRepository {
         },
       },
     });
+  }
+
+  /**
+   * Atomically recover all `Processing` items whose lease has expired, returning
+   * them to `New` and incrementing `attempt_count`. Uses a CTE with
+   * `FOR UPDATE SKIP LOCKED` so concurrent recovery sweeps never double-recover
+   * the same row. Returns the recovered items so the caller can audit each one.
+   */
+  async recoverExpired(params: RecoverExpiredParams): Promise<RecoveredItem[]> {
+    const now = params.now ?? new Date();
+    return this.prisma.$queryRaw<RecoveredItem[]>(Prisma.sql`
+      WITH expired AS (
+        SELECT "id", "claimed_by_worker_id" AS "previousWorkerId"
+        FROM "queue_items"
+        WHERE "status" = CAST(${QueueStatus.Processing} AS "QueueStatus")
+          AND "lock_expires_at" < ${now}
+        ORDER BY "lock_expires_at" ASC
+        LIMIT ${params.batchSize}
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE "queue_items" q
+      SET "status" = CAST(${QueueStatus.New} AS "QueueStatus"),
+          "attempt_count" = q."attempt_count" + 1,
+          "claimed_by_worker_id" = NULL,
+          "claimed_at" = NULL,
+          "heartbeat_at" = NULL,
+          "lock_expires_at" = NULL,
+          "processing_started_at" = NULL,
+          "updated_at" = now()
+      FROM expired
+      WHERE q."id" = expired."id"
+      RETURNING
+        q."id",
+        q."workspace_id" AS "workspaceId",
+        q."permanent_queue_id" AS "permanentQueueId",
+        q."attempt_count" AS "attemptCount",
+        expired."previousWorkerId"
+    `);
   }
 }
 

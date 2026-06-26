@@ -19,4 +19,10 @@ export {
   type EventPublisher,
   type QueueProcessingEvent,
   type QueueItemClaimedEvent,
+  type QueueRecoveredEvent,
 } from './processing-events';
+export {
+  QueueRecoveryService,
+  queueRecoveryService,
+  type QueueRecoveryServiceDeps,
+} from './queue-recovery-service';
