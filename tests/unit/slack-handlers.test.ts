@@ -2,6 +2,7 @@ import type { App } from '@slack/bolt';
 
 jest.mock('../../src/application/queue', () => ({
   queueService: {
+    createItem: jest.fn(),
     getActiveQueue: jest.fn(),
     getWorkingQueue: jest.fn(),
     getFollowUpQueue: jest.fn(),
@@ -27,6 +28,7 @@ import { QueuePriority, QueueStatus } from '../../src/domain/queue';
 import { QueueView, SLACK_ACTION_IDS } from '../../src/interfaces/slack';
 import { registerAppHome } from '../../src/interfaces/slack/handlers/app-home';
 import { parseCommandView, registerCommands } from '../../src/interfaces/slack/handlers/commands';
+import { deriveTitle, registerShortcuts } from '../../src/interfaces/slack/handlers/shortcuts';
 import {
   ACTION_ID_TO_ITEM_ACTION,
   applyItemAction,
@@ -222,5 +224,76 @@ describe('registerCommands', () => {
     expect(ack).toHaveBeenCalledTimes(1);
     const reply = respond.mock.calls[0][0] as { text: string };
     expect(reply.text).toContain('Could not load your queue');
+  });
+});
+
+describe('deriveTitle', () => {
+  it('uses the first non-empty line', () => {
+    expect(deriveTitle('  \n\nReview the deploy\nmore text')).toBe('Review the deploy');
+  });
+
+  it('falls back when the message has no text', () => {
+    expect(deriveTitle('   \n  ')).toBe('Slack message');
+  });
+
+  it('truncates very long titles with an ellipsis', () => {
+    const title = deriveTitle('x'.repeat(500));
+    expect(title.length).toBe(200);
+    expect(title.endsWith('…')).toBe(true);
+  });
+});
+
+describe('registerShortcuts', () => {
+  type Handler = (args: unknown) => Promise<void>;
+  function capture(): Handler {
+    let handler: Handler | undefined;
+    const app = {
+      shortcut: (_id: string, h: Handler) => {
+        handler = h;
+      },
+    } as unknown as App;
+    registerShortcuts(app);
+    return handler!;
+  }
+
+  const messageShortcut = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    type: 'message_action',
+    trigger_id: 'TRIG',
+    user: { id: 'U1' },
+    message: { text: 'Ship the release' },
+    ...over,
+  });
+
+  it('creates a SLACK_MESSAGE item and opens the confirmation modal', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.createItem).mockResolvedValue(item({ title: 'Ship the release' }));
+    const ack = jest.fn();
+    const open = jest.fn();
+    await capture()({
+      shortcut: messageShortcut(),
+      ack,
+      client: { views: { open } },
+      context: { teamId: 'T1' },
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    const created = mock(queueService.createItem).mock.calls[0][1] as { sourceType: string };
+    expect(created.sourceType).toBe('SLACK_MESSAGE');
+    const opened = open.mock.calls[0][0] as { view: { title: { text: string } } };
+    expect(opened.view.title.text).toBe('Added to MyQueue');
+  });
+
+  it('opens a notice modal when creation fails', async () => {
+    mock(slackIdentityService.resolveContext).mockRejectedValue(new Error('not installed'));
+    const ack = jest.fn();
+    const open = jest.fn();
+    await capture()({
+      shortcut: messageShortcut(),
+      ack,
+      client: { views: { open } },
+      context: {},
+    });
+    const opened = open.mock.calls[0][0] as { view: { title: { text: string } } };
+    expect(opened.view.title.text).toBe('MyQueue');
+    expect(queueService.createItem).not.toHaveBeenCalled();
   });
 });

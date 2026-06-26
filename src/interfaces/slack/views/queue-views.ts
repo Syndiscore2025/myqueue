@@ -1,6 +1,14 @@
-import type { ActionsBlock, Button, HomeView, KnownBlock } from '@slack/types';
+import type { ActionsBlock, Button, HomeView, KnownBlock, ModalView } from '@slack/types';
 import { QueueView, SLACK_ACTION_IDS } from '../constants';
-import { divider, header, itemBlocks, section, type QueueItemView } from './blocks';
+import {
+  context,
+  divider,
+  escapeMrkdwn,
+  header,
+  itemBlocks,
+  section,
+  type QueueItemView,
+} from './blocks';
 
 /** Title shown at the top of each view. */
 const VIEW_TITLES: Readonly<Record<QueueView, string>> = {
@@ -93,4 +101,29 @@ export function buildQueueBlocks(view: QueueView, items: readonly QueueItemView[
  */
 export function buildAppHomeView(view: QueueView, items: readonly QueueItemView[]): HomeView {
   return { type: 'home', private_metadata: view, blocks: buildQueueBlocks(view, items) };
+}
+
+/** Confirmation modal shown after the "Add to MyQueue" shortcut creates an item. */
+export function buildItemCreatedModal(
+  item: Pick<QueueItemView, 'permanentQueueId' | 'title' | 'priority'>,
+): ModalView {
+  return {
+    type: 'modal',
+    title: { type: 'plain_text', text: 'Added to MyQueue' },
+    close: { type: 'plain_text', text: 'Done' },
+    blocks: [
+      section(`:white_check_mark: *${escapeMrkdwn(item.title)}* was added to your queue.`),
+      context(`\`${item.permanentQueueId}\` · ${item.priority} priority`),
+    ],
+  };
+}
+
+/** Generic single-message modal, used to surface a shortcut failure to the user. */
+export function buildNoticeModal(title: string, message: string): ModalView {
+  return {
+    type: 'modal',
+    title: { type: 'plain_text', text: title },
+    close: { type: 'plain_text', text: 'Close' },
+    blocks: [section(message)],
+  };
 }
