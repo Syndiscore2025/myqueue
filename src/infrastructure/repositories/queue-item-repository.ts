@@ -40,6 +40,10 @@ export interface QueueItemUpdate {
   assignedAt?: Date | null;
   completedAt?: Date | null;
   archivedAt?: Date | null;
+  /** Phase 3C — single claim gate. Null clears the gate; future date delays claiming. */
+  availableAt?: Date | null;
+  /** Phase 3C — delay expiry timestamp, co-set with availableAt when a delay is applied. */
+  delayUntil?: Date | null;
 }
 
 /** Filters for listing an owner's items. */
@@ -267,6 +271,7 @@ export class QueueItemRepository {
         FROM "queue_items"
         WHERE "workspace_id" = ${params.workspaceId}
           AND "status" = CAST(${QueueStatus.New} AS "QueueStatus")
+          AND ("available_at" IS NULL OR "available_at" <= ${now})
         ORDER BY ${orderBy}
         FOR UPDATE SKIP LOCKED
         LIMIT 1

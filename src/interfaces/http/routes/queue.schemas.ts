@@ -40,6 +40,11 @@ export const snoozeSchema = z.object({
   snoozedUntil: z.coerce.date(),
 });
 
+/** Body for delaying a New item until a future availability time. */
+export const delaySchema = z.object({
+  availableAt: z.coerce.date(),
+});
+
 /** Body for a manual priority change. */
 export const updatePrioritySchema = z.object({
   priority: queuePrioritySchema,

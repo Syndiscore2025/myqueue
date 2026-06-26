@@ -1,5 +1,5 @@
 import type { QueueItem, WorkspaceQueueSettings } from '@prisma/client';
-import { NotFoundError } from '../../domain/errors';
+import { ConflictError, NotFoundError } from '../../domain/errors';
 import type { PriorityClassificationService } from '../../domain/queue';
 import {
   QueueEventType,
@@ -227,6 +227,28 @@ export class QueueService {
       eventType: QueueEventType.UNSNOOZED,
       clearSnoozedUntil: true,
     });
+  }
+
+  /**
+   * Delay a `New` item until `availableAt`. The item stays `New` but is gated
+   * out of both claim selection and active-queue ranking until the timestamp
+   * passes. Records a `DELAYED` audit event.
+   */
+  async delay(ctx: QueueContext, permanentQueueId: string, availableAt: Date): Promise<QueueItem> {
+    const item = await this.requireItem(ctx, permanentQueueId);
+    if (item.status !== QueueStatus.New) {
+      throw new ConflictError(`Only New items can be delayed (current status: "${item.status}")`);
+    }
+    const updated = await this.applyUpdate(ctx, item.id, { availableAt, delayUntil: availableAt });
+    await this.events.record({
+      workspaceId: ctx.workspaceId,
+      queueItemId: item.id,
+      actorWorkspaceUserId: ctx.workspaceUserId,
+      eventType: QueueEventType.DELAYED,
+      previousValue: item.availableAt?.toISOString() ?? null,
+      newValue: availableAt.toISOString(),
+    });
+    return updated;
   }
 
   /** Change an item's priority manually and record the change. */

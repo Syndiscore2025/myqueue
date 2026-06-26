@@ -33,12 +33,22 @@ export function isActiveStatus(status: QueueStatus, options: RankingOptions): bo
   }
 }
 
-/** Filter a set of items down to those that are active under `options`. */
+/**
+ * Filter a set of items down to those that are active under `options`.
+ *
+ * Phase 3C: items whose `availableAt` is in the future are excluded from the
+ * active queue so delayed/scheduled items don't pollute visible rank positions.
+ */
 export function filterActive<T extends RankableItem>(
   items: readonly T[],
   options: RankingOptions,
+  now: Date = new Date(),
 ): T[] {
-  return items.filter((item) => isActiveStatus(item.status, options));
+  return items.filter(
+    (item) =>
+      isActiveStatus(item.status, options) &&
+      (item.availableAt === null || item.availableAt <= now),
+  );
 }
 
 /**
@@ -80,8 +90,9 @@ export function compareForRanking(
 export function rankActiveQueue<T extends RankableItem>(
   items: readonly T[],
   options: RankingOptions,
+  now: Date = new Date(),
 ): RankedQueueItem<T>[] {
-  const active = filterActive(items, options);
+  const active = filterActive(items, options, now);
   active.sort((a, b) => compareForRanking(a, b, options.mode));
   return active.map((item, index) => ({ item, position: index + 1 }));
 }
@@ -95,11 +106,15 @@ export function positionOf<T extends RankableItem>(
   items: readonly T[],
   options: RankingOptions,
   isSame: (a: T, b: T) => boolean,
+  now: Date = new Date(),
 ): number | null {
   if (!isActiveStatus(target.status, options)) {
     return null;
   }
-  const ranked = rankActiveQueue(items, options);
+  if (target.availableAt !== null && target.availableAt > now) {
+    return null;
+  }
+  const ranked = rankActiveQueue(items, options, now);
   const match = ranked.find((entry) => isSame(entry.item, target));
   return match ? match.position : null;
 }

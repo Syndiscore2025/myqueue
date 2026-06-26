@@ -13,6 +13,7 @@ import {
   assignSchema,
   changeStatusSchema,
   createItemSchema,
+  delaySchema,
   followUpSchema,
   failSchema,
   heartbeatSchema,
@@ -322,6 +323,17 @@ queueRouter.post(
     const item = await queueService.updatePriority(ctx, permanentQueueId, body.priority, {
       ...(body.reason === undefined ? {} : { reason: body.reason }),
     });
+    res.status(200).json({ item });
+  }),
+);
+
+queueRouter.post(
+  '/items/:permanentQueueId/delay',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const { permanentQueueId } = permanentIdParamSchema.parse(req.params);
+    const { availableAt } = delaySchema.parse(req.body);
+    const item = await queueService.delay(ctx, permanentQueueId, availableAt);
     res.status(200).json({ item });
   }),
 );
