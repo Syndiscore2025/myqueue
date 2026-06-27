@@ -32,6 +32,7 @@ export {
   QueueActivationService,
   queueActivationService,
   type QueueActivationServiceDeps,
+  type ActivationHook,
 } from './queue-activation-service';
 export {
   QueueRecoveryService,

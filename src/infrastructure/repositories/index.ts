@@ -35,6 +35,7 @@ export {
   type ClaimNextParams,
   type ExtendLeaseParams,
   type RecoveredItem,
+  type ActivatedItem,
   type RecoverExpiredParams,
   type CompleteProcessingParams,
   type ReleaseProcessingParams,

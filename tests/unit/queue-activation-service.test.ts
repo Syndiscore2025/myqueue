@@ -14,7 +14,10 @@ interface Mocks {
   publisher: { publish: jest.Mock };
 }
 
-function build(): { svc: QueueActivationService; m: Mocks } {
+function build(over: { onActivated?: jest.Mock } = {}): {
+  svc: QueueActivationService;
+  m: Mocks;
+} {
   const m: Mocks = {
     items: { activateDueSnoozed: jest.fn() },
     events: { record: jest.fn() },
@@ -24,6 +27,7 @@ function build(): { svc: QueueActivationService; m: Mocks } {
     items: m.items as unknown as QueueItemRepository,
     events: m.events as unknown as QueueEventRepository,
     publisher: m.publisher,
+    ...(over.onActivated === undefined ? {} : { onActivated: over.onActivated }),
   };
   return { svc: new QueueActivationService(deps), m };
 }
@@ -89,6 +93,50 @@ describe('QueueActivationService.activateBatch', () => {
     expect(count).toBe(2);
     expect(m.events.record).toHaveBeenCalledTimes(2);
     expect(m.publisher.publish).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('QueueActivationService onActivated hook', () => {
+  it('invokes the hook once per woken item with the activated item', async () => {
+    const onActivated = jest.fn();
+    const { svc, m } = build({ onActivated });
+    const second = { ...activatedItem, id: 'i2', permanentQueueId: 'MQ-000002' };
+    m.items.activateDueSnoozed.mockResolvedValue([activatedItem, second]);
+
+    await svc.activateBatch(now);
+
+    expect(onActivated).toHaveBeenCalledTimes(2);
+    expect(onActivated).toHaveBeenNthCalledWith(1, activatedItem);
+    expect(onActivated).toHaveBeenNthCalledWith(2, second);
+  });
+
+  it('does not invoke a hook that was never registered', async () => {
+    const { svc, m } = build();
+    m.items.activateDueSnoozed.mockResolvedValue([activatedItem]);
+
+    await expect(svc.activateBatch(now)).resolves.toBe(1);
+  });
+
+  it('swallows a throwing hook so the sweep still completes', async () => {
+    const onActivated = jest.fn(() => {
+      throw new Error('boom');
+    });
+    const { svc, m } = build({ onActivated });
+    m.items.activateDueSnoozed.mockResolvedValue([activatedItem]);
+
+    await expect(svc.activateBatch(now)).resolves.toBe(1);
+    expect(onActivated).toHaveBeenCalledTimes(1);
+  });
+
+  it('setOnActivated registers the hook on an already-built service', async () => {
+    const onActivated = jest.fn();
+    const { svc, m } = build();
+    svc.setOnActivated(onActivated);
+    m.items.activateDueSnoozed.mockResolvedValue([activatedItem]);
+
+    await svc.activateBatch(now);
+
+    expect(onActivated).toHaveBeenCalledWith(activatedItem);
   });
 });
 

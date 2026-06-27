@@ -1,15 +1,27 @@
 import { env } from '../../config';
 import { QueueEventType, QueueStatus } from '../../domain/queue';
-import type { QueueEventRepository, QueueItemRepository } from '../../infrastructure/repositories';
+import type {
+  ActivatedItem,
+  QueueEventRepository,
+  QueueItemRepository,
+} from '../../infrastructure/repositories';
 import { queueEventRepository, queueItemRepository } from '../../infrastructure/repositories';
 import { createLogger } from '../../utils/logger';
 import { eventPublisher, type EventPublisher } from './processing-events';
+
+/**
+ * Hook fired once per activated item. Side effects (e.g. a snooze wake-up DM)
+ * live here so the activation loop stays decoupled from notifications. Invoked
+ * fire-and-forget: it must not throw, and the activation never waits on it.
+ */
+export type ActivationHook = (item: ActivatedItem) => void;
 
 /** Collaborators the activation service orchestrates; injectable for testing. */
 export interface QueueActivationServiceDeps {
   items?: QueueItemRepository;
   events?: QueueEventRepository;
   publisher?: EventPublisher;
+  onActivated?: ActivationHook;
 }
 
 /**
@@ -31,11 +43,22 @@ export class QueueActivationService {
   private readonly log = createLogger('queue-activation');
   private timer: NodeJS.Timeout | null = null;
   private sweepRunning = false;
+  private onActivated: ActivationHook | undefined;
 
   constructor(deps: QueueActivationServiceDeps = {}) {
     this.items = deps.items ?? queueItemRepository;
     this.events = deps.events ?? queueEventRepository;
     this.publisher = deps.publisher ?? eventPublisher;
+    // Optional by design: omitted (e.g. in unit tests) means no hook runs.
+    this.onActivated = deps.onActivated;
+  }
+
+  /**
+   * Register (or replace) the per-item activation hook. Used by the worker
+   * bootstrap to wire snooze wake-up notifications onto the shared singleton.
+   */
+  setOnActivated(hook: ActivationHook): void {
+    this.onActivated = hook;
   }
 
   /**
@@ -65,11 +88,29 @@ export class QueueActivationService {
         activationReason: 'SNOOZED',
         occurredAt: now,
       });
+      this.fireOnActivated(item);
     }
     if (activated.length > 0) {
       this.log.info({ count: activated.length }, 'activated due-snoozed queue items');
     }
     return activated.length;
+  }
+
+  /**
+   * Run the activation hook for one item, fully guarded: a missing hook is a
+   * no-op and any synchronous error is logged and swallowed so a misbehaving
+   * side effect never breaks the sweep.
+   */
+  private fireOnActivated(item: ActivatedItem): void {
+    if (this.onActivated === undefined) return;
+    try {
+      this.onActivated(item);
+    } catch (err) {
+      this.log.error(
+        { err, workspaceId: item.workspaceId, queueItemId: item.id },
+        'activation hook failed',
+      );
+    }
   }
 
   /**
