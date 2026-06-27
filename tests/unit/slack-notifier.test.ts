@@ -20,8 +20,8 @@ function build(): { svc: SlackNotifier; m: Mocks } {
     factory: jest.fn(),
   };
   const client: SlackDmClient = {
-    conversations: { open: m.open as unknown as SlackDmClient['conversations']['open'] },
-    chat: { postMessage: m.postMessage as unknown as SlackDmClient['chat']['postMessage'] },
+    conversations: { open: m.open },
+    chat: { postMessage: m.postMessage },
   };
   m.factory.mockReturnValue(client);
   const svc = new SlackNotifier({
