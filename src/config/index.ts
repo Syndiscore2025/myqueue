@@ -1,4 +1,10 @@
-import { isBillingConfigured, isSlackConfigured, parseEnv, type Env } from './env';
+import {
+  isAuthConfigured,
+  isBillingConfigured,
+  isSlackConfigured,
+  parseEnv,
+  type Env,
+} from './env';
 
 /**
  * Validated, immutable application configuration.
@@ -18,5 +24,8 @@ export const slackConfigured = isSlackConfigured(env);
 /** Whether the billing surface should be mounted. */
 export const billingConfigured = isBillingConfigured(env);
 
-export { isSlackConfigured, isBillingConfigured };
+/** Whether bearer-token API authentication is active (secret configured). */
+export const authConfigured = isAuthConfigured(env);
+
+export { isSlackConfigured, isBillingConfigured, isAuthConfigured };
 export type { Env };

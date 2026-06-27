@@ -235,6 +235,16 @@ describe('registerCommands', () => {
     const reply = respond.mock.calls[0][0] as { text: string };
     expect(reply.text).toContain('Could not load your queue');
   });
+
+  it('reports tokens are disabled when no AUTH_TOKEN_SECRET is configured', async () => {
+    const ack = jest.fn();
+    const respond = jest.fn();
+    await capture()({ command: { text: 'token', user_id: 'U1' }, ack, respond, context: {} });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(slackIdentityService.resolveContext).not.toHaveBeenCalled();
+    const reply = respond.mock.calls[0][0] as { text: string };
+    expect(reply.text).toContain('not enabled');
+  });
 });
 
 describe('buildMessageTitle', () => {

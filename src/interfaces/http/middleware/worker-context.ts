@@ -1,7 +1,10 @@
 import type { Request, RequestHandler } from 'express';
+import { isProduction } from '../../../config';
 import { UnauthorizedError } from '../../../domain/errors';
+import type { AuthVerifier } from '../../../application/auth';
 import type { WorkerContext } from '../../../application/queue';
-import { WORKSPACE_ID_HEADER } from './workspace-context';
+import { authVerifier } from '../../../infrastructure/auth';
+import { WORKSPACE_ID_HEADER, bearerToken } from './workspace-context';
 
 /** Header carrying the claiming worker's identity. */
 export const WORKER_ID_HEADER = 'x-worker-id';
@@ -26,32 +29,84 @@ function header(req: Request, name: string): string | null {
   return value.length > 0 ? value : null;
 }
 
+/** Dependencies for {@link createWorkerContext}; injectable for testing. */
+export interface WorkerContextDeps {
+  /** Verifies inbound bearer tokens into a principal. */
+  verifier: AuthVerifier;
+  /** Whether the explicit-header fallback is permitted (non-production only). */
+  allowDevHeaders: boolean;
+}
+
 /**
- * Guard for worker-facing queue routes.
+ * Build the guard for worker-facing queue routes.
  *
- * A worker is identified by the workspace it operates in (`x-workspace-id`) and
- * its own id (`x-worker-id`). Unlike the user-facing routes there is no acting
- * workspace user — the worker itself is the actor. Workers cannot operate
- * without an id, so both headers are required. The same development/internal
- * security caveat as {@link workspaceContext} applies: these headers are not a
- * substitute for authenticated worker identity.
+ * Primary path: an `Authorization: Bearer <token>` is validated by the
+ * {@link AuthVerifier} and only a `worker` principal is accepted; the worker
+ * itself is the actor, so there is no acting workspace user. When no bearer is
+ * present the guard falls back to the explicit `x-workspace-id` / `x-worker-id`
+ * (and optional `x-worker-hostname`) headers, but only when `allowDevHeaders` is
+ * set — the fallback is disabled in production.
  */
-export const workerContext: RequestHandler = (req, _res, next) => {
-  const workspaceId = header(req, WORKSPACE_ID_HEADER);
-  const workerId = header(req, WORKER_ID_HEADER);
-  if (workspaceId === null || workerId === null) {
-    next(
-      new UnauthorizedError(
-        `Missing worker context: both "${WORKSPACE_ID_HEADER}" and ` +
-          `"${WORKER_ID_HEADER}" headers are required`,
-      ),
-    );
-    return;
-  }
-  const hostname = header(req, WORKER_HOSTNAME_HEADER);
-  req.workerContext = { workspaceId, workerId, ...(hostname === null ? {} : { hostname }) };
-  next();
-};
+export function createWorkerContext(deps: WorkerContextDeps): RequestHandler {
+  const { verifier, allowDevHeaders } = deps;
+  return (req, _res, next) => {
+    void (async () => {
+      try {
+        const token = bearerToken(req);
+        if (token !== null) {
+          const principal = await verifier.verify(token);
+          if (principal === null) {
+            next(new UnauthorizedError('Invalid or expired bearer token'));
+            return;
+          }
+          if (principal.kind !== 'worker') {
+            next(new UnauthorizedError('Bearer token is not a worker token'));
+            return;
+          }
+          req.workerContext = {
+            workspaceId: principal.workspaceId,
+            workerId: principal.workerId,
+            ...(principal.hostname === undefined ? {} : { hostname: principal.hostname }),
+          };
+          next();
+          return;
+        }
+
+        if (!allowDevHeaders) {
+          next(
+            new UnauthorizedError(
+              'Missing credentials: an "Authorization: Bearer <token>" header is required',
+            ),
+          );
+          return;
+        }
+
+        const workspaceId = header(req, WORKSPACE_ID_HEADER);
+        const workerId = header(req, WORKER_ID_HEADER);
+        if (workspaceId === null || workerId === null) {
+          next(
+            new UnauthorizedError(
+              `Missing worker context: both "${WORKSPACE_ID_HEADER}" and ` +
+                `"${WORKER_ID_HEADER}" headers are required`,
+            ),
+          );
+          return;
+        }
+        const hostname = header(req, WORKER_HOSTNAME_HEADER);
+        req.workerContext = { workspaceId, workerId, ...(hostname === null ? {} : { hostname }) };
+        next();
+      } catch (error) {
+        next(error);
+      }
+    })();
+  };
+}
+
+/** Default worker guard: signed-token verification with dev-header fallback. */
+export const workerContext: RequestHandler = createWorkerContext({
+  verifier: authVerifier,
+  allowDevHeaders: !isProduction,
+});
 
 /** Retrieve the guaranteed worker context, throwing if the guard was skipped. */
 export function requireWorkerContext(req: Request): WorkerContext {
