@@ -6,6 +6,7 @@ export {
   type StatusChangeOptions,
   type ItemWithPosition,
   type QueueServiceDeps,
+  type AssignmentNotifier,
 } from './queue-service';
 export {
   QueueClaimService,

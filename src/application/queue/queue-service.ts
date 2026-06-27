@@ -26,6 +26,8 @@ import {
   workspaceQueueSettingsRepository,
   type WorkspaceQueueSettingsUpdate,
 } from '../../infrastructure/repositories';
+import { createLogger } from '../../utils/logger';
+import { notificationService } from '../notifications/notification-service';
 
 /** Who is acting and in which tenant. Both ids are explicit (no faked auth). */
 export interface QueueContext {
@@ -56,6 +58,15 @@ export interface ItemWithPosition {
   position: number | null;
 }
 
+/**
+ * Minimal notifier the queue service fires after an assignment. Kept narrow so
+ * the service depends only on the one capability it needs, and so unit tests can
+ * omit it entirely (an undefined dep means no notifications are attempted).
+ */
+export interface AssignmentNotifier {
+  notifyAssignment(workspaceId: string, queueItemId: string): Promise<boolean>;
+}
+
 /** Collaborators the service orchestrates; injectable for testing. */
 export interface QueueServiceDeps {
   items?: QueueItemRepository;
@@ -63,6 +74,7 @@ export interface QueueServiceDeps {
   history?: QueueHistoryRepository;
   settings?: WorkspaceQueueSettingsRepository;
   classifier?: PriorityClassificationService;
+  notifier?: AssignmentNotifier;
 }
 
 /** Start of the current local day, for "completed today" views. */
@@ -85,6 +97,8 @@ export class QueueService {
   private readonly history: QueueHistoryRepository;
   private readonly settings: WorkspaceQueueSettingsRepository;
   private readonly classifier: PriorityClassificationService;
+  private readonly notifier: AssignmentNotifier | undefined;
+  private readonly log = createLogger('queue-service');
 
   constructor(deps: QueueServiceDeps = {}) {
     this.items = deps.items ?? queueItemRepository;
@@ -92,6 +106,8 @@ export class QueueService {
     this.history = deps.history ?? queueHistoryRepository;
     this.settings = deps.settings ?? workspaceQueueSettingsRepository;
     this.classifier = deps.classifier ?? priorityClassificationService;
+    // Optional by design: when omitted (e.g. in unit tests) no DM is attempted.
+    this.notifier = deps.notifier;
   }
 
   /** Create an item, auto-classifying priority when not supplied, and record audit trail. */
@@ -349,7 +365,30 @@ export class QueueService {
       previousValue: previousOwner,
       newValue: newOwnerWorkspaceUserId,
     });
+    this.fireAssignmentNotification(ctx, item.id, newOwnerWorkspaceUserId);
     return updated;
+  }
+
+  /**
+   * Best-effort DM to the new owner that an item landed on their queue. Skipped
+   * for self-assignment (the actor doesn't need to notify themselves) and when no
+   * notifier is wired. Fire-and-forget: the assignment never waits on or fails
+   * because of delivery, and any error is swallowed after logging.
+   */
+  private fireAssignmentNotification(
+    ctx: QueueContext,
+    queueItemId: string,
+    newOwnerWorkspaceUserId: string,
+  ): void {
+    if (this.notifier === undefined || newOwnerWorkspaceUserId === ctx.workspaceUserId) {
+      return;
+    }
+    void this.notifier.notifyAssignment(ctx.workspaceId, queueItemId).catch((err: unknown) => {
+      this.log.error(
+        { err, workspaceId: ctx.workspaceId, queueItemId },
+        'assignment notification failed',
+      );
+    });
   }
 
   /** Compute an owner's active queue with 1-based positions (ranking is on read). */
@@ -541,5 +580,8 @@ export class QueueService {
   }
 }
 
-/** Process-wide queue service bound to the shared repository singletons. */
-export const queueService = new QueueService();
+/**
+ * Process-wide queue service bound to the shared repository singletons and the
+ * shared notification service, so assignments made through it DM the new owner.
+ */
+export const queueService = new QueueService({ notifier: notificationService });
