@@ -104,6 +104,11 @@ export class WorkspaceRepository {
     });
   }
 
+  /** Resolve a workspace user by its internal id, scoped to the workspace. */
+  async findUserById(workspaceId: string, id: string): Promise<WorkspaceUser | null> {
+    return this.prisma.workspaceUser.findFirst({ where: { id, workspaceId } });
+  }
+
   /** Insert or update a workspace user, scoped to the workspace. */
   async upsertUser(workspaceId: string, input: WorkspaceUserInput): Promise<WorkspaceUser> {
     const fields = {

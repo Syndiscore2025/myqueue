@@ -7,6 +7,12 @@ export interface WorkspaceQueueSettingsUpdate {
   rankingMode?: QueueRankingMode;
   includeWaitingInActive?: boolean;
   includeWorkingInActive?: boolean;
+  // Phase 5 — notification preferences.
+  notifyOnAssignment?: boolean;
+  notifyOnSnoozeWake?: boolean;
+  notifyOnFollowUpDue?: boolean;
+  dailyDigestEnabled?: boolean;
+  dailyDigestHourUtc?: number;
 }
 
 /**
@@ -59,6 +65,21 @@ export class WorkspaceQueueSettingsRepository {
       ...(changes.includeWorkingInActive === undefined
         ? {}
         : { includeWorkingInActive: changes.includeWorkingInActive }),
+      ...(changes.notifyOnAssignment === undefined
+        ? {}
+        : { notifyOnAssignment: changes.notifyOnAssignment }),
+      ...(changes.notifyOnSnoozeWake === undefined
+        ? {}
+        : { notifyOnSnoozeWake: changes.notifyOnSnoozeWake }),
+      ...(changes.notifyOnFollowUpDue === undefined
+        ? {}
+        : { notifyOnFollowUpDue: changes.notifyOnFollowUpDue }),
+      ...(changes.dailyDigestEnabled === undefined
+        ? {}
+        : { dailyDigestEnabled: changes.dailyDigestEnabled }),
+      ...(changes.dailyDigestHourUtc === undefined
+        ? {}
+        : { dailyDigestHourUtc: changes.dailyDigestHourUtc }),
     };
     return this.prisma.workspaceQueueSettings.upsert({
       where: { workspaceId },

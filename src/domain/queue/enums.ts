@@ -55,7 +55,8 @@ export type QueueSourceType = (typeof QueueSourceType)[keyof typeof QueueSourceT
  * Auditable queue actions recorded in the append-only event log.
  *
  * The trailing members are Phase 3B processing-lifecycle actions (additive).
- * Phase 3C adds scheduling/orchestration actions (additive).
+ * Phase 3C adds scheduling/orchestration actions (additive). Phase 5 adds the
+ * NOTIFIED action recorded when a user-facing DM notification is delivered.
  */
 export const QueueEventType = {
   CREATED: 'CREATED',
@@ -89,6 +90,8 @@ export const QueueEventType = {
   RATE_LIMITED: 'RATE_LIMITED',
   DEPENDENCY_BLOCKED: 'DEPENDENCY_BLOCKED',
   DEPENDENCY_UNBLOCKED: 'DEPENDENCY_UNBLOCKED',
+  // Phase 5 — automation & notifications
+  NOTIFIED: 'NOTIFIED',
 } as const;
 export type QueueEventType = (typeof QueueEventType)[keyof typeof QueueEventType];
 

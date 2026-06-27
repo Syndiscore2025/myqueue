@@ -243,6 +243,8 @@ enum QueueEventType {
   RATE_LIMITED
   DEPENDENCY_BLOCKED
   DEPENDENCY_UNBLOCKED
+  // Phase 5 — automation & notifications
+  NOTIFIED
 }
 
 /// Liveness of a registered worker process within a workspace. `ACTIVE` workers
@@ -282,8 +284,17 @@ model WorkspaceQueueSettings {
   includeWaitingInActive Boolean          @default(false) @map("include_waiting_in_active")
   includeWorkingInActive Boolean          @default(true) @map("include_working_in_active")
   lastQueueSeq           Int              @default(0) @map("last_queue_seq")
-  createdAt              DateTime         @default(now()) @map("created_at")
-  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  // Phase 5 — per-workspace notification preferences. Event DMs default on; the
+  // daily digest is opt-in and fires at dailyDigestHourUtc (0–23, UTC).
+  notifyOnAssignment  Boolean @default(true) @map("notify_on_assignment")
+  notifyOnSnoozeWake  Boolean @default(true) @map("notify_on_snooze_wake")
+  notifyOnFollowUpDue Boolean @default(true) @map("notify_on_follow_up_due")
+  dailyDigestEnabled  Boolean @default(false) @map("daily_digest_enabled")
+  dailyDigestHourUtc  Int     @default(13) @map("daily_digest_hour_utc")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -333,16 +344,16 @@ model QueueItem {
   // timestamp means the item is invisible to workers until that time passes.
   // scheduledFor and delayUntil are human-readable source fields that feed into
   // availableAt at creation / delay time.
-  availableAt             DateTime?              @map("available_at")
-  scheduledFor            DateTime?              @map("scheduled_for")
-  delayUntil              DateTime?              @map("delay_until")
-  blockedUntil            DateTime?              @map("blocked_until")
-  activationReason        QueueActivationReason? @map("activation_reason")
-  recurrenceRuleId        String?                @map("recurrence_rule_id")
-  parentRecurringItemId   String?                @map("parent_recurring_item_id")
-  rateLimitKey            String?                @map("rate_limit_key")
-  partitionKey            String?                @map("partition_key")
-  dependencyGroupId       String?                @map("dependency_group_id")
+  availableAt           DateTime?              @map("available_at")
+  scheduledFor          DateTime?              @map("scheduled_for")
+  delayUntil            DateTime?              @map("delay_until")
+  blockedUntil          DateTime?              @map("blocked_until")
+  activationReason      QueueActivationReason? @map("activation_reason")
+  recurrenceRuleId      String?                @map("recurrence_rule_id")
+  parentRecurringItemId String?                @map("parent_recurring_item_id")
+  rateLimitKey          String?                @map("rate_limit_key")
+  partitionKey          String?                @map("partition_key")
+  dependencyGroupId     String?                @map("dependency_group_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -514,16 +525,16 @@ model QueueRecurrenceRule {
   cronExpression           String        @map("cron_expression")
   timezone                 String        @default("UTC")
   isEnabled                Boolean       @default(true) @map("is_enabled")
-  nextRunAt       DateTime?     @map("next_run_at")
-  lastRunAt       DateTime?     @map("last_run_at")
-  maxRuns         Int?          @map("max_runs")
-  runCount        Int           @default(0) @map("run_count")
-  payloadTemplate Json?         @map("payload_template")
-  priority        QueuePriority @default(Green)
-  partitionKey    String?       @map("partition_key")
-  rateLimitKey    String?       @map("rate_limit_key")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+  nextRunAt                DateTime?     @map("next_run_at")
+  lastRunAt                DateTime?     @map("last_run_at")
+  maxRuns                  Int?          @map("max_runs")
+  runCount                 Int           @default(0) @map("run_count")
+  payloadTemplate          Json?         @map("payload_template")
+  priority                 QueuePriority @default(Green)
+  partitionKey             String?       @map("partition_key")
+  rateLimitKey             String?       @map("rate_limit_key")
+  createdAt                DateTime      @default(now()) @map("created_at")
+  updatedAt                DateTime      @updatedAt @map("updated_at")
 
   items QueueItem[]
 
@@ -535,15 +546,15 @@ model QueueRecurrenceRule {
 /// Dependency edge: a queue item that cannot be claimed until another completes.
 /// dependencyType determines the reaction when the upstream item is dead-lettered.
 model QueueDependency {
-  id                    String               @id @default(cuid())
-  workspaceId           String               @map("workspace_id")
-  queueItemId           String               @map("queue_item_id")
-  dependsOnQueueItemId  String               @map("depends_on_queue_item_id")
-  dependencyType        QueueDependencyType  @default(COMPLETE_REQUIRED) @map("dependency_type")
-  createdAt             DateTime             @default(now()) @map("created_at")
+  id                   String              @id @default(cuid())
+  workspaceId          String              @map("workspace_id")
+  queueItemId          String              @map("queue_item_id")
+  dependsOnQueueItemId String              @map("depends_on_queue_item_id")
+  dependencyType       QueueDependencyType @default(COMPLETE_REQUIRED) @map("dependency_type")
+  createdAt            DateTime            @default(now()) @map("created_at")
 
-  queueItem      QueueItem @relation("DependentItem", fields: [queueItemId], references: [id], onDelete: Cascade)
-  dependsOnItem  QueueItem @relation("DependencyItem", fields: [dependsOnQueueItemId], references: [id], onDelete: Cascade)
+  queueItem     QueueItem @relation("DependentItem", fields: [queueItemId], references: [id], onDelete: Cascade)
+  dependsOnItem QueueItem @relation("DependencyItem", fields: [dependsOnQueueItemId], references: [id], onDelete: Cascade)
 
   @@unique([queueItemId, dependsOnQueueItemId])
   @@index([workspaceId, queueItemId])
@@ -554,15 +565,15 @@ model QueueDependency {
 /// Sliding-window rate-limit bucket keyed by workspace + rateLimitKey.
 /// currentCount is reset lazily when now() > windowStartedAt + windowSeconds.
 model QueueRateLimitBucket {
-  id             String   @id @default(cuid())
-  workspaceId    String   @map("workspace_id")
-  rateLimitKey   String   @map("rate_limit_key")
-  windowSeconds  Int      @map("window_seconds")
-  maxItems       Int      @map("max_items")
-  currentCount   Int      @default(0) @map("current_count")
+  id              String   @id @default(cuid())
+  workspaceId     String   @map("workspace_id")
+  rateLimitKey    String   @map("rate_limit_key")
+  windowSeconds   Int      @map("window_seconds")
+  maxItems        Int      @map("max_items")
+  currentCount    Int      @default(0) @map("current_count")
   windowStartedAt DateTime @default(now()) @map("window_started_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@unique([workspaceId, rateLimitKey])
   @@index([workspaceId, rateLimitKey])
