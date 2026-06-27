@@ -342,13 +342,16 @@ These are the main items worth addressing before public production launch:
    dashboard covering delayed/scheduled/snoozed/recurring/rate-limited/dependency-
    blocked/partition-blocked counts, next run, and oldest delayed item.
 4. **Gated integration coverage.** Run and expand `RUN_INTEGRATION=true` suites for
-   delayed/scheduled/recurring/rate-limit/dependency/partition concurrency paths.
+   delayed/scheduled/recurring/rate-limit/dependency/partition concurrency paths,
+   and add coverage for the Phase 5 notification paths (assignment, snooze-wake,
+   follow-up sweep, digest sweep) against real Postgres/Redis.
 5. **Performance benchmarks.** Capture bounded benchmark numbers for activation,
    recurrence processing, rate-limit checks, dependency-heavy claims, and partition
    claims. Avoid staging-scale runs without approval.
-6. **Documentation refresh.** Update README and docs (`architecture`,
-   `queue-engine`, `environment`, `testing`, `folder-structure`) with the final
-   Phase 3B/3C APIs, worker loops, env vars, and operational guidance.
+6. **Documentation refresh.** README, `architecture`, `environment`, `slack`, and
+   `folder-structure` are current through Phase 5. Still pending: refresh
+   `queue-engine` and `testing` with the final Phase 3B/3C APIs, worker loops, and
+   operational guidance.
 7. **Circular dependency protection.** Confirm dependency creation rejects cycles
    with tests; if missing, add it before exposing dependency APIs broadly.
 8. **Rate-limit behavior under concurrency.** Ensure true concurrent integration
@@ -359,6 +362,16 @@ These are the main items worth addressing before public production launch:
     exposed to client code, logs, command arguments, or generated documentation.
 11. **Marketplace legal/docs.** Privacy policy, terms, data retention, deletion, and
     customer support flows should be drafted before Phase 8 review.
+12. **Notification preference management.** Phase 5 reads the per-workspace
+    notification preferences but exposes no user-facing way to change them; add a
+    settings surface (App Home/API) to toggle them and set `dailyDigestHourUtc`.
+13. **Digest scheduling robustness.** The digest fires when `dailyDigestHourUtc`
+    equals the current UTC hour; consider per-user timezones/DST and add gated
+    integration tests proving the per-workspace/owner/day idempotency key holds
+    across overlapping sweeps.
+14. **Notification delivery observability.** Add metrics/alerting for DM send
+    failures (missing/revoked bot token, Slack API errors) so silently dropped
+    notifications surface operationally.
 
 ---
 
