@@ -55,7 +55,7 @@ architecture and delivered in stacked branches by phase.
 
 **Important note:** Phase 3C's core orchestration work is implemented and tests
 are passing. A few recommended follow-ups remain before treating the scheduler as
-fully production-hardened; see §10.
+fully production-hardened; see §11.
 
 ---
 
@@ -454,7 +454,7 @@ Approved — proceed. Stop asking and execute in this order. Answers to your que
 ## Do this now
 1. Verify local state before anything else:
    - `git status` (working tree must be clean),
-   - `git log --oneline -5` (confirm the 3 new commits 3a3e6e5, 015ead3, ae9d82e are present),
+   - `git log --oneline -5` (confirm the handover/privacy follow-up commits cd96aaf, ae9d82e, 015ead3, and 3a3e6e5 are present),
    - `git branch -r` and `git ls-remote --heads origin` to determine what already exists on the remote.
 2. Determine the base branch state yourself:
    - If `feat/phase-4-slack-experience` is NOT on origin, push it first so the PR has a valid base, THEN push the Phase 5 branch.
