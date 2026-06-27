@@ -34,8 +34,10 @@ The codebase produces two long-running processes from one image:
 
 - **API** (`src/server.ts`) — serves HTTP traffic.
 - **Worker** (`src/workers/index.ts`) — runs the queue **recovery loop** (Phase
-  3B), which periodically reclaims expired-lock items so abandoned work re-enters
-  the queue, alongside the BullMQ worker registry.
+  3B), the **scheduler/recurrence sweeps** (Phase 3C), and the **follow-up
+  reminder** and **daily digest** notification sweeps (Phase 5), alongside the
+  BullMQ worker registry. The recovery loop reclaims expired-lock items so
+  abandoned work re-enters the queue.
 
 Both share configuration, logging, datastore clients, and the graceful-shutdown
 lifecycle, so they behave consistently and scale independently.
@@ -98,6 +100,24 @@ gates which item buttons render), so no business logic leaks into the Slack laye
 Side-effecting interactions are protected by `SlackIdempotencyService`, a
 Redis-backed one-time guard keyed on the Slack payload id, so Slack retries never
 double-process. See [slack.md](./slack.md) for setup and the surface catalogue.
+
+## Notifications & automation
+
+Phase 5 adds proactive Slack DMs (assignment, snooze wake-up, follow-up due,
+daily digest) without coupling the queue to Slack. A `Notifier` **port** lives in
+`application/notifications`; the `SlackNotifier` in `infrastructure/slack`
+implements it. `NotificationService` orchestrates each notification — gate on the
+per-workspace preference, resolve the target user, send, and record a `NOTIFIED`
+audit event — and pure Block Kit builders keep message construction
+framework-free.
+
+Delivery is triggered two ways: inline (assignment fires from `assign()`;
+snooze-wake from the activation sweep's `onActivated` callback) and via two
+background sweeps (`FollowUpReminderService`, `DigestService`) that mirror the
+Phase 3C scheduler — overlap-guarded `tick`, bounded batches, idempotent
+start/stop. Both sweeps dedupe with the Redis-backed `SlackIdempotencyService`
+and every delivery path fails safe, so a notification can never break the use
+case or sweep that requested it. See [slack.md](./slack.md) §7.
 
 ## Future service extraction
 

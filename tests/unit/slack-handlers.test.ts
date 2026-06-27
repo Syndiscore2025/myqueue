@@ -29,7 +29,11 @@ import { QueuePriority, QueueStatus } from '../../src/domain/queue';
 import { QueueView, SLACK_ACTION_IDS } from '../../src/interfaces/slack';
 import { registerAppHome } from '../../src/interfaces/slack/handlers/app-home';
 import { parseCommandView, registerCommands } from '../../src/interfaces/slack/handlers/commands';
-import { deriveTitle, registerShortcuts } from '../../src/interfaces/slack/handlers/shortcuts';
+import {
+  buildMessagePermalink,
+  buildMessageTitle,
+  registerShortcuts,
+} from '../../src/interfaces/slack/handlers/shortcuts';
 import {
   parseOverflowValue,
   registerActions,
@@ -233,19 +237,27 @@ describe('registerCommands', () => {
   });
 });
 
-describe('deriveTitle', () => {
-  it('uses the first non-empty line', () => {
-    expect(deriveTitle('  \n\nReview the deploy\nmore text')).toBe('Review the deploy');
+describe('buildMessageTitle', () => {
+  it('uses the channel name without copying any message text', () => {
+    expect(buildMessageTitle('deploys')).toBe('Slack message in #deploys');
   });
 
-  it('falls back when the message has no text', () => {
-    expect(deriveTitle('   \n  ')).toBe('Slack message');
+  it('falls back to a generic label when the channel name is unavailable', () => {
+    expect(buildMessageTitle(undefined)).toBe('Slack message');
+    expect(buildMessageTitle('')).toBe('Slack message');
+  });
+});
+
+describe('buildMessagePermalink', () => {
+  it('builds an archives permalink from metadata alone', () => {
+    expect(buildMessagePermalink('acme', 'C1', '1700000000.000100')).toBe(
+      'https://acme.slack.com/archives/C1/p1700000000000100',
+    );
   });
 
-  it('truncates very long titles with an ellipsis', () => {
-    const title = deriveTitle('x'.repeat(500));
-    expect(title.length).toBe(200);
-    expect(title.endsWith('…')).toBe(true);
+  it('returns null when the team domain is missing', () => {
+    expect(buildMessagePermalink(undefined, 'C1', '1700000000.000100')).toBeNull();
+    expect(buildMessagePermalink('', 'C1', '1700000000.000100')).toBeNull();
   });
 });
 
@@ -265,14 +277,17 @@ describe('registerShortcuts', () => {
   const messageShortcut = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
     type: 'message_action',
     trigger_id: 'TRIG',
+    message_ts: '1700000000.000100',
     user: { id: 'U1' },
-    message: { text: 'Ship the release' },
+    channel: { id: 'C1', name: 'general' },
+    team: { id: 'T1', domain: 'acme' },
+    message: { ts: '1700000000.000100', text: 'Ship the release' },
     ...over,
   });
 
-  it('creates a SLACK_MESSAGE item and opens the confirmation modal', async () => {
+  it('creates a SLACK_MESSAGE reference item without storing message text', async () => {
     mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
-    mock(queueService.createItem).mockResolvedValue(item({ title: 'Ship the release' }));
+    mock(queueService.createItem).mockResolvedValue(item());
     const ack = jest.fn();
     const open = jest.fn();
     await capture()({
@@ -282,10 +297,46 @@ describe('registerShortcuts', () => {
       context: { teamId: 'T1' },
     });
     expect(ack).toHaveBeenCalledTimes(1);
-    const created = mock(queueService.createItem).mock.calls[0][1] as { sourceType: string };
+    const created = mock(queueService.createItem).mock.calls[0][1] as {
+      sourceType: string;
+      summary?: unknown;
+      title: string;
+      sourceSlackChannelId: string;
+      sourceSlackMessageTs: string;
+      sourceSlackThreadTs: string | null;
+      sourceSlackPermalink: string;
+    };
     expect(created.sourceType).toBe('SLACK_MESSAGE');
+    // Privacy: the message body must never be persisted.
+    expect(created.summary).toBeUndefined();
+    expect(created.title).toBe('Slack message in #general');
+    expect(created.sourceSlackChannelId).toBe('C1');
+    expect(created.sourceSlackMessageTs).toBe('1700000000.000100');
+    expect(created.sourceSlackThreadTs).toBeNull();
+    expect(created.sourceSlackPermalink).toBe(
+      'https://acme.slack.com/archives/C1/p1700000000000100',
+    );
     const opened = open.mock.calls[0][0] as { view: { title: { text: string } } };
     expect(opened.view.title.text).toBe('Added to MyQueue');
+  });
+
+  it('captures the thread timestamp when the message is in a thread', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.createItem).mockResolvedValue(item());
+    const ack = jest.fn();
+    const open = jest.fn();
+    await capture()({
+      shortcut: messageShortcut({
+        message: { ts: '1700000000.000100', thread_ts: '1699999999.000001' },
+      }),
+      ack,
+      client: { views: { open } },
+      context: { teamId: 'T1' },
+    });
+    const created = mock(queueService.createItem).mock.calls[0][1] as {
+      sourceSlackThreadTs: string | null;
+    };
+    expect(created.sourceSlackThreadTs).toBe('1699999999.000001');
   });
 
   it('opens a notice modal when creation fails', async () => {

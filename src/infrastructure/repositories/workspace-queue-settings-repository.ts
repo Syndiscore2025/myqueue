@@ -7,6 +7,12 @@ export interface WorkspaceQueueSettingsUpdate {
   rankingMode?: QueueRankingMode;
   includeWaitingInActive?: boolean;
   includeWorkingInActive?: boolean;
+  // Phase 5 — notification preferences.
+  notifyOnAssignment?: boolean;
+  notifyOnSnoozeWake?: boolean;
+  notifyOnFollowUpDue?: boolean;
+  dailyDigestEnabled?: boolean;
+  dailyDigestHourUtc?: number;
 }
 
 /**
@@ -46,6 +52,19 @@ export class WorkspaceQueueSettingsRepository {
     return this.prisma.workspaceQueueSettings.findUnique({ where: { workspaceId } });
   }
 
+  /**
+   * List the settings rows of every workspace that has the daily digest enabled
+   * and scheduled for `hourUtc` (0–23). A read-only input for the digest sweep;
+   * each row carries the workspace id plus the ranking flags the sweep needs to
+   * rank that workspace's items. Tenant isolation is preserved because the caller
+   * lists and notifies strictly within each returned workspace.
+   */
+  async listDigestEnabledForHour(hourUtc: number): Promise<WorkspaceQueueSettings[]> {
+    return this.prisma.workspaceQueueSettings.findMany({
+      where: { dailyDigestEnabled: true, dailyDigestHourUtc: hourUtc },
+    });
+  }
+
   /** Apply configuration changes, creating the row first if necessary. */
   async update(
     workspaceId: string,
@@ -59,6 +78,21 @@ export class WorkspaceQueueSettingsRepository {
       ...(changes.includeWorkingInActive === undefined
         ? {}
         : { includeWorkingInActive: changes.includeWorkingInActive }),
+      ...(changes.notifyOnAssignment === undefined
+        ? {}
+        : { notifyOnAssignment: changes.notifyOnAssignment }),
+      ...(changes.notifyOnSnoozeWake === undefined
+        ? {}
+        : { notifyOnSnoozeWake: changes.notifyOnSnoozeWake }),
+      ...(changes.notifyOnFollowUpDue === undefined
+        ? {}
+        : { notifyOnFollowUpDue: changes.notifyOnFollowUpDue }),
+      ...(changes.dailyDigestEnabled === undefined
+        ? {}
+        : { dailyDigestEnabled: changes.dailyDigestEnabled }),
+      ...(changes.dailyDigestHourUtc === undefined
+        ? {}
+        : { dailyDigestHourUtc: changes.dailyDigestHourUtc }),
     };
     return this.prisma.workspaceQueueSettings.upsert({
       where: { workspaceId },

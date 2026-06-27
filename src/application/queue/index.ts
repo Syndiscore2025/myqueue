@@ -6,6 +6,7 @@ export {
   type StatusChangeOptions,
   type ItemWithPosition,
   type QueueServiceDeps,
+  type AssignmentNotifier,
 } from './queue-service';
 export {
   QueueClaimService,
@@ -31,6 +32,7 @@ export {
   QueueActivationService,
   queueActivationService,
   type QueueActivationServiceDeps,
+  type ActivationHook,
 } from './queue-activation-service';
 export {
   QueueRecoveryService,

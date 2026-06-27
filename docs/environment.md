@@ -27,12 +27,15 @@ to begin.
 | `QUEUE_RECOVERY_BATCH_SIZE` | no   | `100`                      | Max expired locks reclaimed per recovery batch.                   |
 | `QUEUE_MAX_RETRIES`         | no   | `3`                        | Total attempts before an item moves to the Dead Letter Queue.     |
 | `QUEUE_RECOVERY_INTERVAL`   | no   | `60`                       | Seconds between background recovery sweeps.                        |
+| `QUEUE_FOLLOW_UP_INTERVAL_SECONDS` | no | `60`                  | Seconds between follow-up reminder sweeps (Phase 5).              |
+| `QUEUE_FOLLOW_UP_BATCH_SIZE`       | no | `200`                 | Max due follow-ups DM'd per reminder sweep (Phase 5).            |
+| `QUEUE_DIGEST_INTERVAL_SECONDS`    | no | `900`                 | Seconds between daily-digest sweeps (Phase 5).                   |
 | `SLACK_CLIENT_ID`      | prod¹    | `""`                       | Slack OAuth client id (Phase 2 install flow).                     |
 | `SLACK_CLIENT_SECRET`  | prod¹    | `""`                       | Slack OAuth client secret.                                        |
 | `SLACK_SIGNING_SECRET` | prod¹    | `""`                       | Slack request-signing secret (verifies inbound requests).        |
 | `SLACK_STATE_SECRET`   | prod¹    | `""`                       | Slack OAuth state secret.                                         |
 | `SLACK_APP_TOKEN`      | no       | `""`                       | Slack app-level token (Socket Mode only).                        |
-| `SLACK_BOT_SCOPES`     | no       | `commands,chat:write,users:read,team:read` | Comma-separated bot OAuth scopes requested on install. |
+| `SLACK_BOT_SCOPES`     | no       | `commands,chat:write,im:write,users:read,team:read` | Comma-separated bot OAuth scopes requested on install. `im:write` lets the notifier open DM channels (Phase 5). |
 | `SLACK_USER_SCOPES`    | no       | `""`                       | Comma-separated user OAuth scopes requested on install.          |
 | `STRIPE_SECRET_KEY`    | no       | `""`                       | Stripe secret key (billing, later phases).                       |
 | `STRIPE_WEBHOOK_SECRET`| no       | `""`                       | Stripe webhook signing secret.                                   |

@@ -21,6 +21,10 @@ Docker packaging, a full test suite, and CI/CD:
   slash command, an "Add to MyQueue" message shortcut, and Block Kit item
   actions — manage the queue without leaving Slack (see
   [docs/slack.md](docs/slack.md)).
+- **Phase 5** — automation & notifications: proactive Slack DMs for assignment,
+  snooze wake-ups, follow-up reminders, and a daily digest — gated by
+  per-workspace preferences and deduped so retries never double-send (see
+  [docs/slack.md](docs/slack.md)).
 
 ## Tech stack
 

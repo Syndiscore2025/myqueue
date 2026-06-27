@@ -62,16 +62,29 @@ export const envSchema = z.object({
   // specified at item creation time.
   QUEUE_RATE_LIMIT_DEFAULT_MAX_ITEMS: z.coerce.number().int().positive().default(100),
 
+  // --- Automation & notifications (Phase 5) ---
+  // Interval, in seconds, between follow-up reminder sweeps. The sweep DMs the
+  // owner of each FollowUp item whose follow_up_due_at <= now().
+  QUEUE_FOLLOW_UP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
+  // Maximum due follow-ups the reminder sweep processes per tick.
+  QUEUE_FOLLOW_UP_BATCH_SIZE: z.coerce.number().int().positive().default(200),
+  // Interval, in seconds, between daily-digest sweeps. Each sweep DMs a queue
+  // summary to owners in workspaces whose dailyDigestHourUtc equals the current
+  // UTC hour; a per-owner/day idempotency key keeps it to one digest per day.
+  QUEUE_DIGEST_INTERVAL_SECONDS: z.coerce.number().int().positive().default(900),
+
   SLACK_CLIENT_ID: z.string().default(''),
   SLACK_CLIENT_SECRET: z.string().default(''),
   SLACK_SIGNING_SECRET: z.string().default(''),
   SLACK_STATE_SECRET: z.string().default(''),
   SLACK_APP_TOKEN: z.string().default(''),
   // Bot/user OAuth scopes requested during installation. Stored as CSV so the
-  // requested scope set can be changed without code changes.
+  // requested scope set can be changed without code changes. Phase 5 adds
+  // `im:write` so the notifier can open a DM channel (conversations.open) before
+  // posting; `chat:write` covers the message itself.
   SLACK_BOT_SCOPES: z
     .string()
-    .default('commands,chat:write,users:read,team:read')
+    .default('commands,chat:write,im:write,users:read,team:read')
     .transform(splitCsv),
   SLACK_USER_SCOPES: z.string().default('').transform(splitCsv),
 

@@ -1,8 +1,8 @@
 # MyQueue Handover Report
 
 > Onboarding document for the next engineer/agent. It captures the current state
-> after Phase 3, the rules that must be followed, the branch model, validation
-> commands, what remains for Phases 4–8, and recommended gaps to close before a
+> through Phase 5, the rules that must be followed, the branch model, validation
+> commands, what remains for Phases 6–8, and recommended gaps to close before a
 > public launch.
 
 ---
@@ -29,9 +29,9 @@ architecture and delivered in stacked branches by phase.
 
 - **Repo:** `github.com/Syndiscore2025/myqueue`.
 - Work is done as stacked branches. Do not commit phase work directly to `main`.
-- Current Phase 4 branch: `feat/phase-4-slack-experience`.
-- Phase 4 was branched from `feat/phase-3c-scheduled-orchestration` and should
-  target that branch if a PR is opened.
+- Current Phase 5 branch: `feat/phase-5-automation-notifications`.
+- Phase 5 was branched from `feat/phase-4-slack-experience` and should target
+  that branch if a PR is opened.
 - Use conventional commits and commit completed slices separately.
 - **Ask before:** push, PR creation, merge, rebase, dependency install, deploy,
   production data changes, or long/expensive staging-scale tests.
@@ -48,14 +48,14 @@ architecture and delivered in stacked branches by phase.
 | Phase 3B | Worker processing, leases, recovery, retries, DLQ, stats | ✅ Complete |
 | Phase 3C | Scheduling, delay, snooze, recurrence, rate limits, dependencies, partitions | ✅ Core complete |
 | Phase 4 | Slack Experience | ✅ Complete (on branch) |
-| Phase 5 | Automation & Notifications | ⏭️ Next |
-| Phase 6 | SaaS Features | 🔒 Future |
+| Phase 5 | Automation & Notifications | ✅ Complete (on branch) |
+| Phase 6 | SaaS Features | ⏭️ Next |
 | Phase 7 | Production Hardening | 🔒 Future |
 | Phase 8 | Marketplace Readiness | 🔒 Future |
 
 **Important note:** Phase 3C's core orchestration work is implemented and tests
 are passing. A few recommended follow-ups remain before treating the scheduler as
-fully production-hardened; see §10.
+fully production-hardened; see §11.
 
 ---
 
@@ -187,7 +187,9 @@ Delivered:
   status/action (Working/Follow Up/Waiting/Snooze/Archive) views.
 - App Home dashboard published from `app_home_opened`.
 - `/myqueue` slash command for navigation across the views.
-- "Add to MyQueue" message shortcut (`SLACK_MESSAGE` items).
+- "Add to MyQueue" message shortcut — captures a privacy-safe reference
+  (permalink + channel/message/thread ids) as a `SLACK_MESSAGE` item; it never
+  stores message text. See the post-Phase 5 privacy refactor note in §9.
 - Block Kit item actions: Start, Follow Up, Waiting, Snooze, Complete, Archive,
   Refresh — re-rendering the source surface in place.
 - `SlackIdempotencyService` — Redis-backed one-time guard so Slack retries never
@@ -220,21 +222,98 @@ Latest validation run after Phase 4 completion:
 
 ---
 
-## 9. Remaining phases
+## 9. Phase 5 — Automation & Notifications (complete on branch)
 
-### Phase 5 — Automation & Notifications
+**Goal achieved:** the queue proactively reaches out over Slack DM. A `Notifier`
+port (`src/application/notifications`) keeps delivery behind an interface; the
+`SlackNotifier` (`src/infrastructure/slack`) implements it. `NotificationService`
+gates each notification on the relevant per-workspace preference, resolves the
+target user, sends, and records a `NOTIFIED` audit event. See
+[docs/slack.md](docs/slack.md) §7.
 
-**Goal:** Complete the workflow.
+Delivered:
 
-Deliverables:
+- Schema: notification preference columns on `WorkspaceQueueSettings`
+  (`notifyOnAssignment`, `notifyOnSnoozeWake`, `notifyOnFollowUpDue` default on;
+  `dailyDigestEnabled` default off; `dailyDigestHourUtc` default `13`), the
+  `NOTIFIED` `QueueEventType`, and `WorkspaceRepository.findUserById`.
+- `Notifier` port + `NotificationMessage`, with pure Block Kit message builders
+  for assignment, snooze-wake, follow-up-due, and digest.
+- `SlackNotifier` — resolves the encrypted bot token, opens a DM channel, posts;
+  fails safe (logs + returns `false`, never throws).
+- Assignment notification fired from `QueueService.assign()` (skips
+  self-assignment), wired fire-and-forget via an optional dependency.
+- Snooze wake-up via an optional `onActivated` callback on the activation sweep.
+- `FollowUpReminderService` — sweeps due `FollowUp` items, deduped per item +
+  due-time, and DMs each owner.
+- `DigestService` — hourly sweep that ranks each due workspace's active items per
+  owner and DMs a summary, deduped per workspace + owner + UTC date.
+- New env vars (`QUEUE_FOLLOW_UP_INTERVAL_SECONDS`, `QUEUE_FOLLOW_UP_BATCH_SIZE`,
+  `QUEUE_DIGEST_INTERVAL_SECONDS`) and both sweeps wired into the worker
+  bootstrap.
 
-- Follow-up reminders.
-- Snooze reminders / wakeups.
-- Assignment notifications.
-- Direct-message notifications.
-- Queue digest or summary notifications.
-- Audit log visibility for user-facing actions.
-- Notification preference controls.
+Phase 5 adds the `im:write` bot scope so the notifier can open DM channels
+(`conversations.open`); `chat:write` covers the message. No other portal changes
+are required.
+
+### Phase 5 commit list
+
+| Commit | Slice |
+| --- | --- |
+| `a6b5f74` | Notification prefs schema + `Notifier` port / `SlackNotifier` |
+| `17c7c41` | `NotificationService` + Block Kit message builders |
+| `59b5f60` | Assignment notification wiring |
+| `6eeb199` | Snooze wake-up notification wiring |
+| `f625302` | Follow-up reminder sweep |
+| `b496013` | Daily digest sweep |
+| `bf5ceb4` | Phase 5 docs, `im:write` scope, and final gate |
+
+Latest validation run after Phase 5 completion:
+
+- `npm run format:check` ✅
+- `npm run lint` ✅
+- `npm run typecheck` ✅
+- `npm test` ✅ — 314 passed, 10 gated/skipped
+- `npm run build` ✅
+
+### Post-Phase 5 privacy refactor — no message content stored (committed)
+
+A privacy requirement was addressed after Phase 5: the "Add to MyQueue" message
+shortcut must never persist anyone's message body. It now stores only a
+privacy-safe reference plus a generic title, so capturing a message never saves
+its words.
+
+- `src/interfaces/slack/handlers/shortcuts.ts` — removed `deriveTitle` (which read
+  the message body); added pure helpers `buildMessageTitle(channelName)` (generic
+  label, e.g. `Slack message in #deploys`) and
+  `buildMessagePermalink(teamDomain, channelId, messageTs)` (builds the archives
+  permalink from payload metadata alone — no API call, no message text).
+  `handleAddMessage` now passes only the channel id, message ts, thread ts, and
+  permalink; it no longer reads `message.text` or sets `summary`.
+- `src/application/queue/queue-service.ts` — `CreateItemInput` now carries the four
+  `sourceSlack*` reference fields and `createItem` forwards them to the repository
+  (the columns already existed). Priority auto-classification now sees only the
+  generic title.
+- `tests/unit/slack-handlers.test.ts` — dropped the `deriveTitle` suite; added
+  `buildMessageTitle` / `buildMessagePermalink` suites and a thread-capture case;
+  asserts `summary` is never passed and the reference fields are stored.
+- `docs/slack.md` — added a "Privacy — no message content is stored" note.
+
+Status: **committed** on `feat/phase-5-automation-notifications` as `3a3e6e5`
+(`refactor(slack): store privacy-safe message references, never message text`).
+Validation before the commit: `format:check` ✅ · `lint` ✅ · `typecheck` ✅ ·
+`test` ✅ (316 passed, 10 gated/skipped).
+
+Backfill migration (committed): `SLACK_MESSAGE` rows created before this change
+may still hold message text in `summary`. A one-off data migration
+(`prisma/migrations/20260627120000_privacy_null_slack_message_summary`) nulls
+`summary` where `source_type = 'SLACK_MESSAGE'`. It is idempotent and a no-op on
+a fresh database, and has **not** been applied to any database yet — it runs on
+the next `prisma migrate deploy` (committed as `015ead3`).
+
+---
+
+## 10. Remaining phases
 
 ### Phase 6 — SaaS Features
 
@@ -287,7 +366,7 @@ Deliverables:
 
 ---
 
-## 10. Missing / recommended follow-ups
+## 11. Missing / recommended follow-ups
 
 These are the main items worth addressing before public production launch:
 
@@ -300,13 +379,16 @@ These are the main items worth addressing before public production launch:
    dashboard covering delayed/scheduled/snoozed/recurring/rate-limited/dependency-
    blocked/partition-blocked counts, next run, and oldest delayed item.
 4. **Gated integration coverage.** Run and expand `RUN_INTEGRATION=true` suites for
-   delayed/scheduled/recurring/rate-limit/dependency/partition concurrency paths.
+   delayed/scheduled/recurring/rate-limit/dependency/partition concurrency paths,
+   and add coverage for the Phase 5 notification paths (assignment, snooze-wake,
+   follow-up sweep, digest sweep) against real Postgres/Redis.
 5. **Performance benchmarks.** Capture bounded benchmark numbers for activation,
    recurrence processing, rate-limit checks, dependency-heavy claims, and partition
    claims. Avoid staging-scale runs without approval.
-6. **Documentation refresh.** Update README and docs (`architecture`,
-   `queue-engine`, `environment`, `testing`, `folder-structure`) with the final
-   Phase 3B/3C APIs, worker loops, env vars, and operational guidance.
+6. **Documentation refresh.** README, `architecture`, `environment`, `slack`, and
+   `folder-structure` are current through Phase 5. Still pending: refresh
+   `queue-engine` and `testing` with the final Phase 3B/3C APIs, worker loops, and
+   operational guidance.
 7. **Circular dependency protection.** Confirm dependency creation rejects cycles
    with tests; if missing, add it before exposing dependency APIs broadly.
 8. **Rate-limit behavior under concurrency.** Ensure true concurrent integration
@@ -317,15 +399,97 @@ These are the main items worth addressing before public production launch:
     exposed to client code, logs, command arguments, or generated documentation.
 11. **Marketplace legal/docs.** Privacy policy, terms, data retention, deletion, and
     customer support flows should be drafted before Phase 8 review.
+12. **Notification preference management.** Phase 5 reads the per-workspace
+    notification preferences but exposes no user-facing way to change them; add a
+    settings surface (App Home/API) to toggle them and set `dailyDigestHourUtc`.
+13. **Digest scheduling robustness.** The digest fires when `dailyDigestHourUtc`
+    equals the current UTC hour; consider per-user timezones/DST and add gated
+    integration tests proving the per-workspace/owner/day idempotency key holds
+    across overlapping sweeps.
+14. **Notification delivery observability.** Add metrics/alerting for DM send
+    failures (missing/revoked bot token, Slack API errors) so silently dropped
+    notifications surface operationally.
 
 ---
 
-## 11. Suggested immediate next step
+## 12. Suggested immediate next step
 
-1. Optionally run the full gated integration suite locally (`RUN_INTEGRATION=true`).
-2. Open a PR for `feat/phase-4-slack-experience` into
-   `feat/phase-3c-scheduled-orchestration` after approval.
-3. Begin Phase 5 (Automation & Notifications) on a new stacked branch after
-   Phase 4 is accepted.
+1. ✅ Done — the post-Phase 5 privacy refactor is committed (`3a3e6e5`) and the
+   optional `summary` backfill migration is added (`015ead3`, not yet applied to
+   any database). See §9.
+2. Skip the gated `RUN_INTEGRATION=true` run for this PR — it only re-covers queue
+   concurrency/perf (unchanged on this branch) and does not exercise the
+   notification paths. Net-new notification integration coverage is deferred to
+   Phase 7 (see §11.4). The local gate is green: format / lint / typecheck /
+   test (316) / build.
+3. Push `feat/phase-5-automation-notifications` and open a PR into
+   `feat/phase-4-slack-experience` (push the base branch first if it is not yet on
+   the remote). Pushing and PR creation require approval.
+4. After the PR is open, continue into Phase 6 (SaaS Features) on a NEW branch
+   stacked on `feat/phase-5-automation-notifications` (not `main`, and without
+   waiting for the Phase 5 PR to merge). Post a slice plan and wait for go-ahead
+   before writing billing / plan-enforcement logic.
 
-Do not begin Phase 5 work in the current branch unless explicitly instructed.
+Ready-to-use prompts for the next agent covering steps 3–4 are in §13.
+
+---
+
+## 13. Next-agent execution prompts
+
+Two copy-paste prompts for the next agent: §13.1 drives the Phase 5 push + PR;
+§13.2 lets it continue into Phase 6 on a stacked branch. Together they implement
+§12 steps 3–4. (The first prompt's closing guardrail was reconciled to hand off
+to §13.2 instead of hard-stopping after the PR.)
+
+### 13.1 — Push and open the Phase 5 PR
+
+```text
+Approved — proceed. Stop asking and execute in this order. Answers to your questions are baked in below; where something is checkable, verify it with git yourself rather than asking me.
+
+## Decisions (don't re-litigate these)
+- Skip the gated RUN_INTEGRATION run. It only re-covers queue concurrency/perf (unchanged here) and does NOT exercise notification paths. No new signal, not worth standing up Postgres+Redis.
+- Defer notification integration coverage (HANDOVER §11.4) to Phase 7 as its own slice. It must NOT block this PR.
+- Quality gate is green (format/lint/typecheck/test 316/build). Good to ship.
+
+## Do this now
+1. Verify local state before anything else:
+   - `git status` (working tree must be clean),
+   - `git log --oneline -5` (confirm the handover/privacy follow-up commits cd96aaf, ae9d82e, 015ead3, and 3a3e6e5 are present),
+   - `git branch -r` and `git ls-remote --heads origin` to determine what already exists on the remote.
+2. Determine the base branch state yourself:
+   - If `feat/phase-4-slack-experience` is NOT on origin, push it first so the PR has a valid base, THEN push the Phase 5 branch.
+   - If it IS on origin, just push the Phase 5 branch.
+   - Report what you found and what you pushed.
+3. Push `feat/phase-5-automation-notifications` to origin.
+4. Open the PR: base = `feat/phase-4-slack-experience`, head = `feat/phase-5-automation-notifications` (NOT main).
+5. Draft the PR description yourself from the Phase 5 commit history plus the post-Phase 5 privacy refactor. Include:
+   - a short summary of what Phase 5 delivers (assignment / snooze-wake / follow-up sweep / daily digest, Notifier port + SlackNotifier, per-workspace prefs, im:write scope),
+   - the privacy refactor (no message content stored; reference-only),
+   - the validation results (format/lint/typecheck/test 316/build all green),
+   - an explicit "Deferred" note pointing to §11.4 notification integration tests for Phase 7,
+   - a "Scopes" note that Phase 5 adds `im:write`.
+
+## Guardrails
+- Pushing and PR creation are the only remote actions approved here. Do NOT merge, rebase, or force-push.
+- After the PR is open, report the PR URL, the final commit list, the base/head branches, and anything you had to push to make the base valid — then proceed to the Phase 6 continuation prompt (§13.2).
+```
+
+### 13.2 — Continue into Phase 6 after the PR
+
+```text
+## After the PR is open — continue into Phase 6
+Once the Phase 5 PR is open and you've reported the PR URL + branch state, you ARE cleared to begin Phase 6 without waiting for the PR to merge. Do it like this:
+
+1. Create a NEW stacked branch off the Phase 5 branch:
+   `git checkout feat/phase-5-automation-notifications` then
+   `git checkout -b feat/phase-6-saas-features`
+   (Phase 6 stacks on Phase 5 — do NOT branch from main.)
+2. Before writing code, post a Phase 6 plan: break it into small, independently-committable slices from HANDOVER §10 (admin panel, billing/Stripe, plan enforcement, workspace settings UI/API, analytics/usage reporting, tenant-isolation tests, partner API docs if needed). Wait for my go-ahead on the slice order, since Stripe/billing has product decisions.
+3. Build slice by slice. After each slice: run the full quality gate (format/lint/typecheck/test/build) and commit with a conventional message. Keep Clean Architecture and per-`workspaceId` tenant scoping throughout.
+
+## Still ask-first (unchanged)
+- Push, PR, merge, rebase, dependency installs, deploy, and any production/long-running test runs.
+- For Phase 6 specifically: confirm with me before adding the Stripe SDK or any new dependency, and before creating Stripe-related secrets/config.
+```
+
+Do not begin Phase 6 work in the current branch unless explicitly instructed.

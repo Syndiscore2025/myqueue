@@ -34,7 +34,10 @@ interface Mocks {
 }
 
 /** Fresh mock collaborators plus a QueueService wired to them. */
-function build(): { svc: QueueService; m: Mocks } {
+function build(over: { notifier?: { notifyAssignment: jest.Mock } } = {}): {
+  svc: QueueService;
+  m: Mocks;
+} {
   const m: Mocks = {
     items: {
       create: jest.fn(),
@@ -69,6 +72,7 @@ function build(): { svc: QueueService; m: Mocks } {
     history: m.history as unknown as QueueHistoryRepository,
     settings: m.settings as unknown as WorkspaceQueueSettingsRepository,
     classifier: m.classifier as unknown as PriorityClassificationService,
+    ...(over.notifier === undefined ? {} : { notifier: over.notifier }),
   };
   return { svc: new QueueService(deps), m };
 }
@@ -377,6 +381,46 @@ describe('QueueService priority and assignment', () => {
     expect(m.events.record).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: QueueEventType.REASSIGNED }),
     );
+  });
+
+  it('fires an assignment notification for the new owner (fire-and-forget)', async () => {
+    const notifier = { notifyAssignment: jest.fn().mockResolvedValue(true) };
+    const { svc, m } = build({ notifier });
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ ownerWorkspaceUserId: 'u1' }));
+    m.items.updateScoped.mockResolvedValue(makeItem({ ownerWorkspaceUserId: 'u2' }));
+
+    await svc.assign(ctx, 'MQ-000001', 'u2');
+
+    expect(notifier.notifyAssignment).toHaveBeenCalledWith('w1', 'i1');
+  });
+
+  it('skips the notification when a user assigns an item to themselves', async () => {
+    const notifier = { notifyAssignment: jest.fn().mockResolvedValue(true) };
+    const { svc, m } = build({ notifier });
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ ownerWorkspaceUserId: 'u2' }));
+    m.items.updateScoped.mockResolvedValue(makeItem({ ownerWorkspaceUserId: 'u1' }));
+
+    await svc.assign(ctx, 'MQ-000001', 'u1');
+
+    expect(notifier.notifyAssignment).not.toHaveBeenCalled();
+  });
+
+  it('still completes the assignment when notification delivery rejects', async () => {
+    const notifier = { notifyAssignment: jest.fn().mockRejectedValue(new Error('boom')) };
+    const { svc, m } = build({ notifier });
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ ownerWorkspaceUserId: 'u1' }));
+    m.items.updateScoped.mockResolvedValue(makeItem({ ownerWorkspaceUserId: 'u2' }));
+
+    await expect(svc.assign(ctx, 'MQ-000001', 'u2')).resolves.toBeDefined();
+    expect(notifier.notifyAssignment).toHaveBeenCalledWith('w1', 'i1');
+  });
+
+  it('never attempts a notification when no notifier is wired', async () => {
+    const { svc, m } = build();
+    m.items.findByPermanentId.mockResolvedValue(makeItem({ ownerWorkspaceUserId: 'u1' }));
+    m.items.updateScoped.mockResolvedValue(makeItem({ ownerWorkspaceUserId: 'u2' }));
+
+    await expect(svc.assign(ctx, 'MQ-000001', 'u2')).resolves.toBeDefined();
   });
 });
 
