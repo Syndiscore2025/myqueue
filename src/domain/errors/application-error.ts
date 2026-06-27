@@ -56,6 +56,16 @@ export class ConflictError extends ApplicationError {
   readonly code = 'CONFLICT';
 }
 
+/**
+ * Raised when an action is blocked by the workspace's billing plan — e.g. a plan
+ * entitlement limit was reached. Maps to HTTP 402 so clients can distinguish a
+ * billing/upgrade condition from a permission failure (403).
+ */
+export class PaymentRequiredError extends ApplicationError {
+  readonly statusCode = 402;
+  readonly code = 'PLAN_LIMIT_EXCEEDED';
+}
+
 export class InternalServerError extends ApplicationError {
   readonly statusCode = 500;
   readonly code = 'INTERNAL_SERVER_ERROR';

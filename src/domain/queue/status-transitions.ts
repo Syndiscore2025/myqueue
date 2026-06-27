@@ -65,6 +65,19 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<QueueStatus, readonly QueueSta
   [QueueStatus.DeadLetter]: [QueueStatus.New],
 };
 
+/**
+ * Statuses that are "resolved" and therefore do NOT count toward a workspace's
+ * active-items entitlement quota: a `Done` or `Archived` item is finished work.
+ * Everything else — including `DeadLetter`, which still needs operator attention
+ * — counts as active so a workspace cannot accumulate unlimited unresolved items.
+ */
+export const RESOLVED_STATUSES: readonly QueueStatus[] = [QueueStatus.Done, QueueStatus.Archived];
+
+/** True when a status counts toward the active-items entitlement quota. */
+export function countsAsActive(status: QueueStatus): boolean {
+  return !RESOLVED_STATUSES.includes(status);
+}
+
 /** The statuses an item in `from` may legally move to. */
 export function allowedTransitionsFrom(from: QueueStatus): readonly QueueStatus[] {
   return ALLOWED_TRANSITIONS[from];
