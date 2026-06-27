@@ -264,7 +264,7 @@ are required.
 | `6eeb199` | Snooze wake-up notification wiring |
 | `f625302` | Follow-up reminder sweep |
 | `b496013` | Daily digest sweep |
-| `7cd53b5` | Phase 5 docs, `im:write` scope, and final gate |
+| `bf5ceb4` | Phase 5 docs, `im:write` scope, and final gate |
 
 Latest validation run after Phase 5 completion:
 
