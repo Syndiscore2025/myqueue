@@ -187,7 +187,9 @@ Delivered:
   status/action (Working/Follow Up/Waiting/Snooze/Archive) views.
 - App Home dashboard published from `app_home_opened`.
 - `/myqueue` slash command for navigation across the views.
-- "Add to MyQueue" message shortcut (`SLACK_MESSAGE` items).
+- "Add to MyQueue" message shortcut — captures a privacy-safe reference
+  (permalink + channel/message/thread ids) as a `SLACK_MESSAGE` item; it never
+  stores message text. See the post-Phase 5 privacy refactor note in §9.
 - Block Kit item actions: Start, Follow Up, Waiting, Snooze, Complete, Archive,
   Refresh — re-rendering the source surface in place.
 - `SlackIdempotencyService` — Redis-backed one-time guard so Slack retries never
@@ -273,6 +275,41 @@ Latest validation run after Phase 5 completion:
 - `npm run typecheck` ✅
 - `npm test` ✅ — 314 passed, 10 gated/skipped
 - `npm run build` ✅
+
+### Post-Phase 5 privacy refactor — no message content stored (committed)
+
+A privacy requirement was addressed after Phase 5: the "Add to MyQueue" message
+shortcut must never persist anyone's message body. It now stores only a
+privacy-safe reference plus a generic title, so capturing a message never saves
+its words.
+
+- `src/interfaces/slack/handlers/shortcuts.ts` — removed `deriveTitle` (which read
+  the message body); added pure helpers `buildMessageTitle(channelName)` (generic
+  label, e.g. `Slack message in #deploys`) and
+  `buildMessagePermalink(teamDomain, channelId, messageTs)` (builds the archives
+  permalink from payload metadata alone — no API call, no message text).
+  `handleAddMessage` now passes only the channel id, message ts, thread ts, and
+  permalink; it no longer reads `message.text` or sets `summary`.
+- `src/application/queue/queue-service.ts` — `CreateItemInput` now carries the four
+  `sourceSlack*` reference fields and `createItem` forwards them to the repository
+  (the columns already existed). Priority auto-classification now sees only the
+  generic title.
+- `tests/unit/slack-handlers.test.ts` — dropped the `deriveTitle` suite; added
+  `buildMessageTitle` / `buildMessagePermalink` suites and a thread-capture case;
+  asserts `summary` is never passed and the reference fields are stored.
+- `docs/slack.md` — added a "Privacy — no message content is stored" note.
+
+Status: **committed** on `feat/phase-5-automation-notifications` as `3a3e6e5`
+(`refactor(slack): store privacy-safe message references, never message text`).
+Validation before the commit: `format:check` ✅ · `lint` ✅ · `typecheck` ✅ ·
+`test` ✅ (316 passed, 10 gated/skipped).
+
+Backfill migration (committed): `SLACK_MESSAGE` rows created before this change
+may still hold message text in `summary`. A one-off data migration
+(`prisma/migrations/20260627120000_privacy_null_slack_message_summary`) nulls
+`summary` where `source_type = 'SLACK_MESSAGE'`. It is idempotent and a no-op on
+a fresh database, and has **not** been applied to any database yet — it runs on
+the next `prisma migrate deploy` (committed as `015ead3`).
 
 ---
 
@@ -377,12 +414,15 @@ These are the main items worth addressing before public production launch:
 
 ## 12. Suggested immediate next step
 
-1. Optionally run the full gated integration suite locally (`RUN_INTEGRATION=true`),
+1. ✅ Done — the post-Phase 5 privacy refactor is committed (`3a3e6e5`) and the
+   optional `summary` backfill migration is added (`015ead3`, not yet applied to
+   any database). See §9.
+2. Optionally run the full gated integration suite locally (`RUN_INTEGRATION=true`),
    exercising the assignment/snooze/follow-up/digest notification paths against
    local Postgres/Redis.
-2. Open a PR for `feat/phase-5-automation-notifications` into
+3. Open a PR for `feat/phase-5-automation-notifications` into
    `feat/phase-4-slack-experience` after approval.
-3. Begin Phase 6 (SaaS Features) on a new stacked branch after Phase 5 is
+4. Begin Phase 6 (SaaS Features) on a new stacked branch after Phase 5 is
    accepted.
 
 Do not begin Phase 6 work in the current branch unless explicitly instructed.
