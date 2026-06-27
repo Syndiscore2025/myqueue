@@ -28,6 +28,24 @@ enum AuditAction {
   APP_UNINSTALLED
   TOKENS_REVOKED
   SETTINGS_UPDATED
+  PLAN_CHANGED
+}
+
+/// The subscription tier a workspace is on. FREE is the default for every new
+/// installation; PRO and BUSINESS are purchased via the billing provider.
+enum WorkspacePlan {
+  FREE
+  PRO
+  BUSINESS
+}
+
+/// Billing status of a workspace's subscription. ACTIVE grants paid
+/// entitlements; PAST_DUE retains access during dunning; CANCELED falls back to
+/// Free-tier limits. Mirrors the domain `WorkspacePlanStatus`.
+enum WorkspacePlanStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
 }
 
 /// A tenant: one Slack workspace (or enterprise-grid org) installation.
@@ -43,6 +61,16 @@ model Workspace {
   uninstalledAt       DateTime?       @map("uninstalled_at")
   createdAt           DateTime        @default(now()) @map("created_at")
   updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  // Phase 6 — billing. Plan defaults to FREE for every install; the Stripe
+  // identifiers are populated once a workspace starts a paid subscription. These
+  // columns are null/FREE for every existing row, so behavior is unchanged until
+  // an admin upgrades.
+  plan                 WorkspacePlan       @default(FREE)
+  planStatus           WorkspacePlanStatus @default(ACTIVE) @map("plan_status")
+  stripeCustomerId     String?             @unique @map("stripe_customer_id")
+  stripeSubscriptionId String?             @unique @map("stripe_subscription_id")
+  planUpdatedAt        DateTime?           @map("plan_updated_at")
 
   installation SlackInstallation?
   settings     WorkspaceSettings?

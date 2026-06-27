@@ -16,6 +16,11 @@ import {
 import { healthRouter } from './routes/health';
 import { queueRouter } from './routes/queue';
 import { workersRouter } from './routes/workers';
+import { adminRouter } from './routes/admin';
+import { analyticsRouter } from './routes/analytics';
+import { billingRouter } from './routes/billing';
+import { billingWebhookRouter } from './routes/billing-webhook';
+import { workspaceRouter } from './routes/workspace';
 import { openApiDocument } from './openapi';
 
 /**
@@ -50,6 +55,11 @@ export function createApp(): Application {
     logger.info('Slack surface mounted (events, install, oauth_redirect)');
   }
 
+  // Stripe webhook receiver. Mounted before the JSON body parser so its
+  // express.raw() handler can preserve the exact signed bytes for HMAC
+  // verification; the route carries its own full path (/api/v1/billing/webhook).
+  app.use(billingWebhookRouter);
+
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(rateLimiter);
@@ -61,6 +71,10 @@ export function createApp(): Application {
   // headers (see workspaceContext guard) until production session auth lands.
   app.use('/api/v1/queue', queueRouter);
   app.use('/api/v1/workers', workersRouter);
+  app.use('/api/v1/workspace', workspaceRouter);
+  app.use('/api/v1/billing', billingRouter);
+  app.use('/api/v1/admin', adminRouter);
+  app.use('/api/v1/analytics', analyticsRouter);
 
   // API documentation.
   app.get('/openapi.json', (_req, res) => {

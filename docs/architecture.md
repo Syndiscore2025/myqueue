@@ -119,6 +119,31 @@ start/stop. Both sweeps dedupe with the Redis-backed `SlackIdempotencyService`
 and every delivery path fails safe, so a notification can never break the use
 case or sweep that requested it. See [slack.md](./slack.md) §7.
 
+## Billing & entitlements
+
+Phase 6 turns MyQueue into a tiered SaaS (Free / Pro / Business) as another
+vertical slice. The plan model is pure: `domain/billing` defines the tiers, their
+`entitlements` (feature flags + resource limits), and limit-check helpers, plus a
+`BillingProvider` **port**. `infrastructure/billing` implements that port with a
+**native Stripe adapter** — form-encoded `fetch` for Checkout/portal/API calls
+and `HMAC-SHA256` for webhook verification — so the heavy Stripe SDK is avoided.
+
+`application/billing` orchestrates three use cases: `BillingService` (Checkout /
+portal sessions and webhook processing that maps Stripe subscription state onto a
+workspace's plan), `EntitlementService` (resolves and enforces a workspace's
+effective entitlements), and `UsageService` (workspace-scoped usage reporting,
+gated by the analytics entitlement). Enforcement lives in the application layer:
+resource limits (active items, workers, recurrence rules) are checked before
+mutation and gated features raise `PaymentRequiredError` (HTTP 402).
+
+The HTTP surface adds `/api/v1/billing`, `/api/v1/workspace`, `/api/v1/admin`,
+and `/api/v1/analytics`, all behind `workspaceContext` so every read and write is
+scoped by `workspaceId`. Like Slack, billing is **optional**: when the core
+`STRIPE_*` credentials are absent the billing surface is not mounted and the app
+runs Free-only. Raw Stripe identifiers are never echoed to clients. The Stripe
+webhook receiver uses `express.raw()` to preserve the exact payload for signature
+verification before processing.
+
 ## Future service extraction
 
 Because delivery (`interfaces`), orchestration (`application`), and

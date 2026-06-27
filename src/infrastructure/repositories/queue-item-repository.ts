@@ -1,5 +1,11 @@
 import { Prisma, type PrismaClient, type QueueItem } from '@prisma/client';
-import { QueuePriority, QueueRankingMode, QueueSourceType, QueueStatus } from '../../domain/queue';
+import {
+  QueuePriority,
+  QueueRankingMode,
+  QueueSourceType,
+  QueueStatus,
+  RESOLVED_STATUSES,
+} from '../../domain/queue';
 import { getPrisma } from '../database/prisma';
 
 /** Width of the zero-padded numeric portion of a permanent queue id. */
@@ -671,6 +677,17 @@ export class QueueItemRepository {
           permanentQueueId: params.permanentQueueId,
         },
       },
+    });
+  }
+
+  /**
+   * Count a workspace's active (non-resolved) items — everything except `Done`
+   * and `Archived`. Used by entitlement checks to enforce the plan's active-item
+   * cap before a new item is created. Strictly tenant-scoped by `workspaceId`.
+   */
+  async countActive(workspaceId: string): Promise<number> {
+    return this.prisma.queueItem.count({
+      where: { workspaceId, status: { notIn: [...RESOLVED_STATUSES] } },
     });
   }
 

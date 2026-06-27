@@ -28,6 +28,9 @@ import {
   updateSettingsSchema,
   workerStatusSchema,
 } from './routes/queue.schemas';
+import { startCheckoutSchema, workspacePlanSchema } from './routes/billing.schemas';
+import { updateWorkspaceSettingsSchema } from './routes/workspace.schemas';
+import { WorkspacePlanStatus } from '../../domain/billing';
 
 extendZodWithOpenApi(z);
 
@@ -556,6 +559,226 @@ registry.registerPath({
   },
 });
 
+// --- SaaS: workspace settings, billing & analytics (Phase 6) -----------------
+// Tenant-scoped routes guarded by workspace context. The Stripe webhook is the
+// one exception: it is signature-verified rather than header-guarded.
+
+const PlanStatusSchema = z.nativeEnum(WorkspacePlanStatus);
+
+const EntitlementsSchema = registry.register(
+  'PlanEntitlements',
+  z.object({
+    maxActiveItems: z.number().int().nullable().openapi({ description: 'null = unlimited.' }),
+    maxWorkers: z.number().int().nullable().openapi({ description: 'null = unlimited.' }),
+    maxRecurrenceRules: z.number().int().nullable().openapi({ description: 'null = unlimited.' }),
+    dailyDigest: z.boolean(),
+    analytics: z.boolean(),
+  }),
+);
+
+const WorkspaceEntitlementsSchema = registry.register(
+  'WorkspaceEntitlements',
+  z.object({
+    plan: workspacePlanSchema,
+    status: PlanStatusSchema,
+    entitlements: EntitlementsSchema,
+  }),
+);
+const PlanEnvelope = z.object({ plan: WorkspaceEntitlementsSchema });
+
+const WorkspaceSettingsSchema = registry.register(
+  'WorkspaceSettings',
+  z.object({
+    workspaceId: z.string(),
+    rankingMode: queueRankingModeSchema,
+    includeWaitingInActive: z.boolean(),
+    includeWorkingInActive: z.boolean(),
+    notifyOnAssignment: z.boolean(),
+    notifyOnSnoozeWake: z.boolean(),
+    notifyOnFollowUpDue: z.boolean(),
+    dailyDigestEnabled: z.boolean(),
+    dailyDigestHourUtc: z.number().int().openapi({ description: 'Digest send hour, 0–23 UTC.' }),
+  }),
+);
+const WorkspaceSettingsEnvelope = z.object({ settings: WorkspaceSettingsSchema });
+
+const CheckoutEnvelope = z.object({
+  url: z.string().openapi({ description: 'Hosted provider URL to redirect the admin to.' }),
+});
+
+const LimitUsageSchema = z.object({
+  used: z.number().int(),
+  limit: z.number().int().nullable().openapi({ description: 'null = unlimited.' }),
+  remaining: z.number().int().nullable().openapi({ description: 'null = unlimited.' }),
+  withinLimit: z.boolean(),
+});
+const UsageReportSchema = registry.register(
+  'UsageReport',
+  z.object({
+    plan: workspacePlanSchema,
+    status: PlanStatusSchema,
+    entitlements: EntitlementsSchema,
+    usage: z.object({
+      activeItems: LimitUsageSchema,
+      workers: LimitUsageSchema,
+      recurrenceRules: LimitUsageSchema,
+    }),
+  }),
+);
+const UsageEnvelope = z.object({ usage: UsageReportSchema });
+
+const AdminOverviewSchema = registry.register(
+  'AdminOverview',
+  z.object({
+    workspace: z.object({
+      id: z.string(),
+      slackTeamName: z.string().nullable(),
+      isEnterpriseInstall: z.boolean(),
+      status: z.string(),
+      installedAt: z.string(),
+      createdAt: z.string(),
+    }),
+    billing: z.object({
+      plan: workspacePlanSchema,
+      status: PlanStatusSchema,
+      hasActiveSubscription: z.boolean(),
+      planUpdatedAt: z.string().nullable(),
+    }),
+    entitlements: EntitlementsSchema,
+    statistics: QueueStatisticsSchema,
+  }),
+);
+
+const paymentRequired = {
+  402: {
+    description: 'Plan limit reached or feature not available.',
+    content: json(ErrorResponse),
+  },
+};
+const notFound = {
+  404: { description: 'Workspace not found.', content: json(ErrorResponse) },
+};
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/workspace/settings',
+  summary: 'Read workspace settings and plan',
+  description: 'Returns the queue + notification settings together with the plan and entitlements.',
+  tags: ['Workspace'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: {
+      description: 'Settings and plan.',
+      content: json(WorkspaceSettingsEnvelope.extend({ plan: WorkspaceEntitlementsSchema })),
+    },
+    ...guarded,
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/api/v1/workspace/settings',
+  summary: 'Update workspace queue & notification settings',
+  tags: ['Workspace'],
+  request: { headers: workspaceHeaders, body: { content: json(updateWorkspaceSettingsSchema) } },
+  responses: {
+    200: { description: 'Updated settings.', content: json(WorkspaceSettingsEnvelope) },
+    ...guarded,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/billing/plan',
+  summary: 'Read the workspace plan and entitlements',
+  tags: ['Billing'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The plan and entitlements in force.', content: json(PlanEnvelope) },
+    ...guarded,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/billing/checkout',
+  summary: 'Start a hosted checkout session for a plan upgrade',
+  tags: ['Billing'],
+  request: { headers: workspaceHeaders, body: { content: json(startCheckoutSchema) } },
+  responses: {
+    200: { description: 'The checkout URL to redirect to.', content: json(CheckoutEnvelope) },
+    ...guarded,
+    ...notFound,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/billing/portal',
+  summary: 'Open the self-serve billing portal',
+  description: 'Returns a portal URL for an existing customer to manage or cancel a subscription.',
+  tags: ['Billing'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The billing portal URL.', content: json(CheckoutEnvelope) },
+    ...guarded,
+    ...notFound,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/billing/webhook',
+  summary: 'Stripe webhook receiver',
+  description:
+    'Receives Stripe subscription events. The raw body is HMAC-verified against the ' +
+    'STRIPE_WEBHOOK_SECRET using the Stripe-Signature header before any plan change is applied.',
+  tags: ['Billing'],
+  request: {
+    headers: z.object({
+      'stripe-signature': z
+        .string()
+        .openapi({ description: 'Stripe signature header (t=...,v1=...).' }),
+    }),
+    body: { content: { 'application/json': { schema: z.unknown() } } },
+  },
+  responses: {
+    200: { description: 'Event received/acknowledged.' },
+    400: { description: 'Missing or invalid signature.', content: json(ErrorResponse) },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/admin/overview',
+  summary: 'Workspace admin overview',
+  description:
+    'Consolidated view: workspace identity, billing posture, entitlements, and statistics.',
+  tags: ['Admin'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The workspace overview.', content: json(AdminOverviewSchema) },
+    ...guarded,
+    ...notFound,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/analytics/usage',
+  summary: 'Workspace usage vs plan limits',
+  description:
+    'Reports current usage of each countable entitlement with remaining headroom. A paid ' +
+    'feature: a plan without the analytics entitlement receives 402.',
+  tags: ['Analytics'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The usage report.', content: json(UsageEnvelope) },
+    ...guarded,
+    ...paymentRequired,
+  },
+});
+
 export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateDocument']> {
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({
@@ -565,8 +788,9 @@ export function buildOpenApiDocument(): ReturnType<OpenApiGeneratorV3['generateD
       version: appInfo.version,
       description:
         'MyQueue platform API: infrastructure probes, the Slack surface — OAuth/install ' +
-        '(Phase 2) and the in-Slack experience (Phase 4) — and the internal queue API ' +
-        '(Phase 3A).',
+        '(Phase 2) and the in-Slack experience (Phase 4) — the internal queue API ' +
+        '(Phase 3A), and the SaaS surface — workspace settings, billing, admin, and ' +
+        'analytics (Phase 6).',
     },
     servers: [{ url: env.APP_BASE_URL }],
   });

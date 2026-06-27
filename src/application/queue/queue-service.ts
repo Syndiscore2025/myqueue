@@ -28,6 +28,7 @@ import {
 } from '../../infrastructure/repositories';
 import { createLogger } from '../../utils/logger';
 import { notificationService } from '../notifications/notification-service';
+import { entitlementService } from '../billing/entitlement-service';
 
 /** Who is acting and in which tenant. Both ids are explicit (no faked auth). */
 export interface QueueContext {
@@ -75,6 +76,16 @@ export interface AssignmentNotifier {
   notifyAssignment(workspaceId: string, queueItemId: string): Promise<boolean>;
 }
 
+/**
+ * Minimal entitlement guard the queue service consults before creating an item.
+ * Kept narrow so the service depends only on the one capability it needs, and so
+ * unit tests can omit it entirely (an undefined dep means no plan cap is
+ * enforced — items are unlimited). The guard throws when the plan limit is hit.
+ */
+export interface EntitlementGuard {
+  assertCanCreateItem(workspaceId: string): Promise<void>;
+}
+
 /** Collaborators the service orchestrates; injectable for testing. */
 export interface QueueServiceDeps {
   items?: QueueItemRepository;
@@ -83,6 +94,7 @@ export interface QueueServiceDeps {
   settings?: WorkspaceQueueSettingsRepository;
   classifier?: PriorityClassificationService;
   notifier?: AssignmentNotifier;
+  entitlements?: EntitlementGuard;
 }
 
 /** Start of the current local day, for "completed today" views. */
@@ -106,6 +118,7 @@ export class QueueService {
   private readonly settings: WorkspaceQueueSettingsRepository;
   private readonly classifier: PriorityClassificationService;
   private readonly notifier: AssignmentNotifier | undefined;
+  private readonly entitlements: EntitlementGuard | undefined;
   private readonly log = createLogger('queue-service');
 
   constructor(deps: QueueServiceDeps = {}) {
@@ -116,10 +129,17 @@ export class QueueService {
     this.classifier = deps.classifier ?? priorityClassificationService;
     // Optional by design: when omitted (e.g. in unit tests) no DM is attempted.
     this.notifier = deps.notifier;
+    // Optional by design: when omitted (e.g. in unit tests) no plan cap applies.
+    this.entitlements = deps.entitlements;
   }
 
   /** Create an item, auto-classifying priority when not supplied, and record audit trail. */
   async createItem(ctx: QueueContext, input: CreateItemInput): Promise<QueueItem> {
+    // Enforce the plan's active-item cap up front so a workspace at its limit is
+    // rejected with a 402 before any row is written. Unlimited when no guard is wired.
+    if (this.entitlements !== undefined) {
+      await this.entitlements.assertCanCreateItem(ctx.workspaceId);
+    }
     const owner = input.ownerWorkspaceUserId ?? ctx.workspaceUserId;
     const classification =
       input.priority === undefined
@@ -593,7 +613,11 @@ export class QueueService {
 }
 
 /**
- * Process-wide queue service bound to the shared repository singletons and the
- * shared notification service, so assignments made through it DM the new owner.
+ * Process-wide queue service bound to the shared repository singletons, the
+ * shared notification service (so assignments made through it DM the new owner),
+ * and the shared entitlement service (so creates respect the workspace plan cap).
  */
-export const queueService = new QueueService({ notifier: notificationService });
+export const queueService = new QueueService({
+  notifier: notificationService,
+  entitlements: entitlementService,
+});

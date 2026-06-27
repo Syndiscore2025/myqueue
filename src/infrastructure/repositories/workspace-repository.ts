@@ -1,6 +1,8 @@
 import {
   type PrismaClient,
   type Workspace,
+  type WorkspacePlan,
+  type WorkspacePlanStatus,
   type WorkspaceSettings,
   type WorkspaceUser,
   WorkspaceStatus,
@@ -29,6 +31,19 @@ export interface WorkspaceUserInput {
   displayName?: string | null;
   isAdmin?: boolean;
   isInstaller?: boolean;
+}
+
+/**
+ * Partial billing update for a workspace. Any omitted field is left unchanged
+ * (Prisma treats `undefined` as a no-op); pass `null` to explicitly clear a
+ * Stripe identifier. `planUpdatedAt` is stamped automatically whenever the plan
+ * or its status changes.
+ */
+export interface WorkspaceBillingUpdate {
+  plan?: WorkspacePlan;
+  planStatus?: WorkspacePlanStatus;
+  stripeCustomerId?: string | null;
+  stripeSubscriptionId?: string | null;
 }
 
 /**
@@ -85,6 +100,31 @@ export class WorkspaceRepository {
 
   async findById(workspaceId: string): Promise<Workspace | null> {
     return this.prisma.workspace.findUnique({ where: { id: workspaceId } });
+  }
+
+  /**
+   * Resolve a workspace by its Stripe customer id. Used by webhook handling to
+   * map a provider event back to the owning tenant. Returns null if no workspace
+   * is linked to that customer.
+   */
+  async findByStripeCustomerId(stripeCustomerId: string): Promise<Workspace | null> {
+    return this.prisma.workspace.findUnique({ where: { stripeCustomerId } });
+  }
+
+  /**
+   * Apply a billing update to a single workspace. Tenant-scoped by id. Stamps
+   * `planUpdatedAt` whenever the plan or its status changes so the last billing
+   * transition is auditable on the row itself.
+   */
+  async updateBilling(workspaceId: string, update: WorkspaceBillingUpdate): Promise<Workspace> {
+    const touchesPlan = update.plan !== undefined || update.planStatus !== undefined;
+    return this.prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        ...update,
+        ...(touchesPlan ? { planUpdatedAt: new Date() } : {}),
+      },
+    });
   }
 
   /** Mark a workspace as uninstalled (soft delete preserving audit history). */

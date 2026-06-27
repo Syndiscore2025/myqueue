@@ -88,8 +88,19 @@ export const envSchema = z.object({
     .transform(splitCsv),
   SLACK_USER_SCOPES: z.string().default('').transform(splitCsv),
 
+  // --- Billing (Phase 6) ---
+  // Stripe secret API key and webhook signing secret. Both default empty so the
+  // app boots without billing configured (the billing surface is then disabled,
+  // mirroring the Slack-optional pattern). Stripe price ids map each purchasable
+  // plan to its recurring price; the return URLs are where Stripe sends the user
+  // after Checkout or the billing portal.
   STRIPE_SECRET_KEY: z.string().default(''),
   STRIPE_WEBHOOK_SECRET: z.string().default(''),
+  STRIPE_PRICE_PRO: z.string().default(''),
+  STRIPE_PRICE_BUSINESS: z.string().default(''),
+  STRIPE_CHECKOUT_SUCCESS_URL: z.string().default(''),
+  STRIPE_CHECKOUT_CANCEL_URL: z.string().default(''),
+  STRIPE_PORTAL_RETURN_URL: z.string().default(''),
 });
 
 /** Slack OAuth credentials required for the installation flow to operate. */
@@ -107,6 +118,18 @@ const REQUIRED_SLACK_KEYS = [
  */
 export function isSlackConfigured(source: Env): boolean {
   return REQUIRED_SLACK_KEYS.every((key) => source[key].length > 0);
+}
+
+/** Stripe credentials required for the billing surface to operate. */
+const REQUIRED_STRIPE_KEYS = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'] as const;
+
+/**
+ * Whether the core Stripe credentials needed to run checkout and verify webhooks
+ * are present. When false, the billing surface is not mounted but the rest of the
+ * application still boots, mirroring {@link isSlackConfigured}.
+ */
+export function isBillingConfigured(source: Env): boolean {
+  return REQUIRED_STRIPE_KEYS.every((key) => source[key].length > 0);
 }
 
 export type Env = z.infer<typeof envSchema>;

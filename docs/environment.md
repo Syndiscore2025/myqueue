@@ -37,12 +37,22 @@ to begin.
 | `SLACK_APP_TOKEN`      | no       | `""`                       | Slack app-level token (Socket Mode only).                        |
 | `SLACK_BOT_SCOPES`     | no       | `commands,chat:write,im:write,users:read,team:read` | Comma-separated bot OAuth scopes requested on install. `im:write` lets the notifier open DM channels (Phase 5). |
 | `SLACK_USER_SCOPES`    | no       | `""`                       | Comma-separated user OAuth scopes requested on install.          |
-| `STRIPE_SECRET_KEY`    | no       | `""`                       | Stripe secret key (billing, later phases).                       |
-| `STRIPE_WEBHOOK_SECRET`| no       | `""`                       | Stripe webhook signing secret.                                   |
+| `STRIPE_SECRET_KEY`    | billing² | `""`                       | Stripe secret API key (Checkout, billing portal, API calls).     |
+| `STRIPE_WEBHOOK_SECRET`| billing² | `""`                       | Stripe webhook signing secret (verifies inbound webhooks).       |
+| `STRIPE_PRICE_PRO`     | no       | `""`                       | Stripe recurring price id mapped to the **Pro** plan.            |
+| `STRIPE_PRICE_BUSINESS`| no       | `""`                       | Stripe recurring price id mapped to the **Business** plan.       |
+| `STRIPE_CHECKOUT_SUCCESS_URL` | no | `""`                     | Return URL after a successful Checkout (defaults under `APP_BASE_URL`). |
+| `STRIPE_CHECKOUT_CANCEL_URL`  | no | `""`                     | Return URL when Checkout is cancelled.                           |
+| `STRIPE_PORTAL_RETURN_URL`    | no | `""`                     | Return URL from the Stripe billing portal.                      |
 
 ¹ The four required `SLACK_*` credentials are optional in development/test (the
 Slack surface is simply not mounted) but **mandatory in production** — the
 process refuses to boot without them.
+
+² The two core `STRIPE_*` credentials are optional everywhere. When both are set
+the billing surface (`/api/v1/billing/*` and the Stripe webhook receiver) is
+mounted; when either is blank the app boots in **Free-only** mode with billing
+disabled, mirroring the Slack-optional pattern.
 
 ## Generating secrets
 
@@ -58,5 +68,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
   see [`slack.md`](./slack.md) for the full setup walkthrough (scopes, redirect
   URL, event subscriptions). Optional in development/test, required in
   production.
-- **Stripe** (`STRIPE_*`) — created in the Stripe dashboard when billing is
-  added (later phases). Leaving these blank is fully supported for now.
+- **Stripe** (`STRIPE_*`) — created in the Stripe dashboard. `STRIPE_SECRET_KEY`
+  and `STRIPE_WEBHOOK_SECRET` enable the billing surface; the `STRIPE_PRICE_*`
+  ids map the Pro/Business plans to their recurring prices. Point a Stripe
+  webhook endpoint at `{APP_BASE_URL}/api/v1/billing/webhook`. Leaving these
+  blank runs the app in Free-only mode.

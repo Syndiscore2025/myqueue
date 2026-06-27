@@ -4,6 +4,7 @@ export {
   type TenantQuery,
   type WorkspaceUpsertInput,
   type WorkspaceUserInput,
+  type WorkspaceBillingUpdate,
 } from './workspace-repository';
 export {
   SlackInstallationRepository,

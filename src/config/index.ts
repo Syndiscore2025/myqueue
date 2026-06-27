@@ -1,4 +1,4 @@
-import { isSlackConfigured, parseEnv, type Env } from './env';
+import { isBillingConfigured, isSlackConfigured, parseEnv, type Env } from './env';
 
 /**
  * Validated, immutable application configuration.
@@ -15,5 +15,8 @@ export const isTest = env.NODE_ENV === 'test';
 /** Whether the Slack OAuth/install surface should be mounted. */
 export const slackConfigured = isSlackConfigured(env);
 
-export { isSlackConfigured };
+/** Whether the billing surface should be mounted. */
+export const billingConfigured = isBillingConfigured(env);
+
+export { isSlackConfigured, isBillingConfigured };
 export type { Env };

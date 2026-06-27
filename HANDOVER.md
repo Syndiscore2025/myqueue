@@ -1,8 +1,8 @@
 # MyQueue Handover Report
 
 > Onboarding document for the next engineer/agent. It captures the current state
-> through Phase 5, the rules that must be followed, the branch model, validation
-> commands, what remains for Phases 6–8, and recommended gaps to close before a
+> through Phase 6, the rules that must be followed, the branch model, validation
+> commands, what remains for Phases 7–8, and recommended gaps to close before a
 > public launch.
 
 ---
@@ -29,12 +29,12 @@ architecture and delivered in stacked branches by phase.
 
 - **Repo:** `github.com/Syndiscore2025/myqueue`.
 - Work is done as stacked branches. Do not commit phase work directly to `main`.
-- Current Phase 5 branch: `feat/phase-5-automation-notifications`.
-- Phase 5 was branched from `feat/phase-4-slack-experience` and should target
-  that branch if a PR is opened.
+- Current Phase 6 branch: `feat/phase-6-saas-features`.
+- Phase 6 was branched from `feat/phase-5-automation-notifications` and should
+  target that branch if a PR is opened.
 - Use conventional commits and commit completed slices separately.
-- **Ask before:** push, PR creation, merge, rebase, dependency install, deploy,
-  production data changes, or long/expensive staging-scale tests.
+- **Ask before:** commit, push, PR creation, merge, rebase, dependency install,
+  deploy, production data changes, or long/expensive staging-scale tests.
 
 ---
 
@@ -49,13 +49,13 @@ architecture and delivered in stacked branches by phase.
 | Phase 3C | Scheduling, delay, snooze, recurrence, rate limits, dependencies, partitions | ✅ Core complete |
 | Phase 4 | Slack Experience | ✅ Complete (on branch) |
 | Phase 5 | Automation & Notifications | ✅ Complete (on branch) |
-| Phase 6 | SaaS Features | ⏭️ Next |
+| Phase 6 | SaaS Features | ✅ Complete (on branch) |
 | Phase 7 | Production Hardening | 🔒 Future |
 | Phase 8 | Marketplace Readiness | 🔒 Future |
 
 **Important note:** Phase 3C's core orchestration work is implemented and tests
 are passing. A few recommended follow-ups remain before treating the scheduler as
-fully production-hardened; see §11.
+fully production-hardened; see §12.
 
 ---
 
@@ -313,21 +313,77 @@ the next `prisma migrate deploy` (committed as `015ead3`).
 
 ---
 
-## 10. Remaining phases
+## 10. Phase 6 — SaaS Features (complete on branch)
 
-### Phase 6 — SaaS Features
+**Goal achieved:** MyQueue is now a tiered SaaS (Free / Pro / Business) with a
+native Stripe billing integration, application-layer entitlement enforcement,
+workspace-scoped usage analytics, and an admin overview — all behind the existing
+per-`workspaceId` tenant boundary. Billing is optional: with the core `STRIPE_*`
+credentials absent the app boots Free-only and the billing surface is not mounted
+(mirroring the Slack-optional pattern). See
+[docs/architecture.md](docs/architecture.md) §"Billing & entitlements" and
+[docs/environment.md](docs/environment.md).
 
-**Goal:** Make it a manageable SaaS product.
+Delivered:
 
-Deliverables:
+- **Plan domain** (`src/domain/billing`): `WorkspacePlan` (Free/Pro/Business) and
+  `WorkspacePlanStatus`, per-plan `PlanEntitlements` (feature flags + resource
+  limits), pure limit-check helpers (`isWithinLimit`, `effectiveEntitlements`),
+  `PURCHASABLE_PLANS`, and the provider-agnostic `BillingProvider` port.
+- **Schema + migration**: `WorkspacePlan` / `WorkspacePlanStatus` enums, the
+  `PLAN_CHANGED` audit action, and billing columns on `Workspace` (`plan`,
+  `planStatus`, `stripeCustomerId`, `stripeSubscriptionId`, `planUpdatedAt`).
+- **Repositories**: `WorkspaceRepository.findByStripeCustomerId` / `updateBilling`
+  and `QueueItemRepository.countActive`, all tenant-scoped.
+- **Native Stripe adapter** (`src/infrastructure/billing`): form-encoded `fetch`
+  for Checkout / portal / API calls and `HMAC-SHA256` webhook verification with a
+  timestamp-tolerance window — no Stripe SDK dependency — plus event/status/price
+  mappers that translate Stripe vocabulary into the domain enums.
+- **Application services** (`src/application/billing`): `BillingService` (checkout
+  / portal sessions and webhook processing that maps subscription state onto a
+  workspace's plan with a `PLAN_CHANGED` audit), `EntitlementService` (resolve +
+  enforce effective entitlements), and `UsageService` (analytics-gated usage
+  report). Resource limits are enforced in `QueueService` before mutation; gated
+  features raise `PaymentRequiredError` (HTTP 402).
+- **HTTP surface**: `/api/v1/billing` (plan, checkout, portal, webhook),
+  `/api/v1/workspace/settings` (GET/PATCH incl. notification preferences),
+  `/api/v1/admin/overview`, and `/api/v1/analytics/usage` — all behind
+  `workspaceContext` and documented in the generated OpenAPI. Raw Stripe
+  identifiers are never echoed to clients; the webhook uses `express.raw()` to
+  preserve the exact payload for signature verification.
+- **Config**: seven `STRIPE_*` variables and `isBillingConfigured` / the
+  `billingConfigured` flag, documented in `environment.md` and `.env.example`.
 
-- Admin panel.
-- Billing and Stripe integration.
-- Subscription/plan enforcement.
-- Workspace settings UI/API.
-- Analytics and usage reporting.
-- Tenant isolation tests.
-- Public or partner API documentation, if needed.
+### Phase 6 slices
+
+| Slice | Scope |
+| --- | --- |
+| 1–2 | Plan domain model, entitlement enums, schema + migration, config |
+| 3 | Tenant-scoped billing repository methods + active-item counting |
+| 4 | Entitlement enforcement in `QueueService` (active items, workers, recurrence) |
+| 5 | Native Stripe provider + event/status/price mappers |
+| 6 | `BillingService` / `EntitlementService` / `UsageService` |
+| 7 | HTTP routes (billing / workspace / admin / analytics) + OpenAPI |
+| 8–9 | Usage analytics + OpenAPI documentation |
+| 10 | Tests (61 new: unit + integration + explicit tenant isolation) |
+| 11 | Docs (`architecture` / `folder-structure` / `environment` / `.env.example`) + this handover |
+
+No new Slack scopes are required for Phase 6.
+
+Latest validation run after Phase 6 completion:
+
+- `npm run format:check` ✅
+- `npm run lint` ✅
+- `npm run typecheck` ✅
+- `npm test` ✅ — 373 passed, 10 gated/skipped
+- `npm run build` ✅
+
+The Phase 6 work is **uncommitted on `feat/phase-6-saas-features`, pending
+approval** to commit/push/PR. Commit slice by slice (see §14.1).
+
+---
+
+## 11. Remaining phases
 
 ### Phase 7 — Production Hardening
 
@@ -366,7 +422,7 @@ Deliverables:
 
 ---
 
-## 11. Missing / recommended follow-ups
+## 12. Missing / recommended follow-ups
 
 These are the main items worth addressing before public production launch:
 
@@ -386,7 +442,7 @@ These are the main items worth addressing before public production launch:
    recurrence processing, rate-limit checks, dependency-heavy claims, and partition
    claims. Avoid staging-scale runs without approval.
 6. **Documentation refresh.** README, `architecture`, `environment`, `slack`, and
-   `folder-structure` are current through Phase 5. Still pending: refresh
+   `folder-structure` are current through Phase 6. Still pending: refresh
    `queue-engine` and `testing` with the final Phase 3B/3C APIs, worker loops, and
    operational guidance.
 7. **Circular dependency protection.** Confirm dependency creation rejects cycles
@@ -412,84 +468,87 @@ These are the main items worth addressing before public production launch:
 
 ---
 
-## 12. Suggested immediate next step
+## 13. Suggested immediate next step
 
-1. ✅ Done — the post-Phase 5 privacy refactor is committed (`3a3e6e5`) and the
-   optional `summary` backfill migration is added (`015ead3`, not yet applied to
-   any database). See §9.
-2. Skip the gated `RUN_INTEGRATION=true` run for this PR — it only re-covers queue
-   concurrency/perf (unchanged on this branch) and does not exercise the
-   notification paths. Net-new notification integration coverage is deferred to
-   Phase 7 (see §11.4). The local gate is green: format / lint / typecheck /
-   test (316) / build.
-3. Push `feat/phase-5-automation-notifications` and open a PR into
-   `feat/phase-4-slack-experience` (push the base branch first if it is not yet on
-   the remote). Pushing and PR creation require approval.
-4. After the PR is open, continue into Phase 6 (SaaS Features) on a NEW branch
-   stacked on `feat/phase-5-automation-notifications` (not `main`, and without
-   waiting for the Phase 5 PR to merge). Post a slice plan and wait for go-ahead
-   before writing billing / plan-enforcement logic.
+1. ✅ Done — Phase 6 (SaaS Features) is fully implemented on
+   `feat/phase-6-saas-features`. The full quality gate is green: format / lint /
+   typecheck / test (373) / build. See §10.
+2. The Phase 6 work is **uncommitted** on the branch. Commit it slice by slice
+   with conventional messages (see the slice table in §10), keeping Clean
+   Architecture and per-`workspaceId` scoping intact. Committing requires
+   approval.
+3. Skip the gated `RUN_INTEGRATION=true` run for this PR — it only re-covers queue
+   concurrency/perf (unchanged on this branch) and does not exercise billing or
+   notification paths. Net-new notification integration coverage stays deferred to
+   Phase 7 (see §12.4).
+4. Push `feat/phase-6-saas-features` and open a PR into
+   `feat/phase-5-automation-notifications` (push the base branch first if it is not
+   yet on the remote). Pushing and PR creation require approval.
+5. After the PR is open, continue into Phase 7 (Production Hardening) on a NEW
+   branch stacked on `feat/phase-6-saas-features` (not `main`, and without waiting
+   for the Phase 6 PR to merge). Post a slice plan and fold in the relevant
+   follow-ups from §12 (real auth, Slack hardening, notification integration
+   coverage, observability) before writing code.
 
-Ready-to-use prompts for the next agent covering steps 3–4 are in §13.
+Ready-to-use prompts for the next agent covering steps 2–5 are in §14.
 
 ---
 
-## 13. Next-agent execution prompts
+## 14. Next-agent execution prompts
 
-Two copy-paste prompts for the next agent: §13.1 drives the Phase 5 push + PR;
-§13.2 lets it continue into Phase 6 on a stacked branch. Together they implement
-§12 steps 3–4. (The first prompt's closing guardrail was reconciled to hand off
-to §13.2 instead of hard-stopping after the PR.)
+Two copy-paste prompts for the next agent: §14.1 drives the Phase 6 commit + push
++ PR; §14.2 lets it continue into Phase 7 on a stacked branch. Together they
+implement §13 steps 2–5.
 
-### 13.1 — Push and open the Phase 5 PR
+### 14.1 — Commit, push, and open the Phase 6 PR
 
 ```text
 Approved — proceed. Stop asking and execute in this order. Answers to your questions are baked in below; where something is checkable, verify it with git yourself rather than asking me.
 
 ## Decisions (don't re-litigate these)
-- Skip the gated RUN_INTEGRATION run. It only re-covers queue concurrency/perf (unchanged here) and does NOT exercise notification paths. No new signal, not worth standing up Postgres+Redis.
-- Defer notification integration coverage (HANDOVER §11.4) to Phase 7 as its own slice. It must NOT block this PR.
-- Quality gate is green (format/lint/typecheck/test 316/build). Good to ship.
+- Skip the gated RUN_INTEGRATION run. It only re-covers queue concurrency/perf (unchanged here) and does NOT exercise billing or notification paths. No new signal, not worth standing up Postgres+Redis.
+- Defer notification integration coverage (HANDOVER §12.4) to Phase 7 as its own slice. It must NOT block this PR.
+- Quality gate is green (format/lint/typecheck/test 373/build). Good to ship.
 
 ## Do this now
 1. Verify local state before anything else:
-   - `git status` (working tree must be clean),
-   - `git log --oneline -5` (confirm the handover/privacy follow-up commits cd96aaf, ae9d82e, 015ead3, and 3a3e6e5 are present),
+   - `git status` (the Phase 6 changes are uncommitted on the working tree),
+   - `git rev-parse --abbrev-ref HEAD` (must be `feat/phase-6-saas-features`),
    - `git branch -r` and `git ls-remote --heads origin` to determine what already exists on the remote.
-2. Determine the base branch state yourself:
-   - If `feat/phase-4-slack-experience` is NOT on origin, push it first so the PR has a valid base, THEN push the Phase 5 branch.
-   - If it IS on origin, just push the Phase 5 branch.
+2. Commit the Phase 6 work slice by slice using the slice table in HANDOVER §10, with conventional messages (e.g. `feat(billing): plan domain model and entitlement enums`, `feat(billing): native Stripe provider`, `feat(http): billing/workspace/admin/analytics routes`, `test(billing): unit + integration + tenant-isolation`, `docs: phase 6 billing architecture + handover`). Re-run the full gate before the final commit.
+3. Determine the base branch state yourself:
+   - If `feat/phase-5-automation-notifications` is NOT on origin, push it first so the PR has a valid base, THEN push the Phase 6 branch.
+   - If it IS on origin, just push the Phase 6 branch.
    - Report what you found and what you pushed.
-3. Push `feat/phase-5-automation-notifications` to origin.
-4. Open the PR: base = `feat/phase-4-slack-experience`, head = `feat/phase-5-automation-notifications` (NOT main).
-5. Draft the PR description yourself from the Phase 5 commit history plus the post-Phase 5 privacy refactor. Include:
-   - a short summary of what Phase 5 delivers (assignment / snooze-wake / follow-up sweep / daily digest, Notifier port + SlackNotifier, per-workspace prefs, im:write scope),
-   - the privacy refactor (no message content stored; reference-only),
-   - the validation results (format/lint/typecheck/test 316/build all green),
-   - an explicit "Deferred" note pointing to §11.4 notification integration tests for Phase 7,
-   - a "Scopes" note that Phase 5 adds `im:write`.
+4. Push `feat/phase-6-saas-features` to origin.
+5. Open the PR: base = `feat/phase-5-automation-notifications`, head = `feat/phase-6-saas-features` (NOT main).
+6. Draft the PR description yourself from the Phase 6 commit history. Include:
+   - a short summary of what Phase 6 delivers (tiered Free/Pro/Business plans, native Stripe billing, entitlement enforcement, usage analytics, admin overview, workspace settings),
+   - the native-Stripe note (fetch + HMAC-SHA256 webhook verification, no Stripe SDK dependency),
+   - the validation results (format/lint/typecheck/test 373/build all green),
+   - an explicit "Deferred" note pointing to §12.4 notification integration tests for Phase 7,
+   - a "Config" note listing the new STRIPE_* variables and that billing is optional (Free-only when absent).
 
 ## Guardrails
-- Pushing and PR creation are the only remote actions approved here. Do NOT merge, rebase, or force-push.
-- After the PR is open, report the PR URL, the final commit list, the base/head branches, and anything you had to push to make the base valid — then proceed to the Phase 6 continuation prompt (§13.2).
+- Committing, pushing, and PR creation are the only actions approved here. Do NOT merge, rebase, or force-push.
+- After the PR is open, report the PR URL, the final commit list, the base/head branches, and anything you had to push to make the base valid — then proceed to the Phase 7 continuation prompt (§14.2).
 ```
 
-### 13.2 — Continue into Phase 6 after the PR
+### 14.2 — Continue into Phase 7 after the PR
 
 ```text
-## After the PR is open — continue into Phase 6
-Once the Phase 5 PR is open and you've reported the PR URL + branch state, you ARE cleared to begin Phase 6 without waiting for the PR to merge. Do it like this:
+## After the PR is open — continue into Phase 7
+Once the Phase 6 PR is open and you've reported the PR URL + branch state, you ARE cleared to begin Phase 7 without waiting for the PR to merge. Do it like this:
 
-1. Create a NEW stacked branch off the Phase 5 branch:
-   `git checkout feat/phase-5-automation-notifications` then
-   `git checkout -b feat/phase-6-saas-features`
-   (Phase 6 stacks on Phase 5 — do NOT branch from main.)
-2. Before writing code, post a Phase 6 plan: break it into small, independently-committable slices from HANDOVER §10 (admin panel, billing/Stripe, plan enforcement, workspace settings UI/API, analytics/usage reporting, tenant-isolation tests, partner API docs if needed). Wait for my go-ahead on the slice order, since Stripe/billing has product decisions.
+1. Create a NEW stacked branch off the Phase 6 branch:
+   `git checkout feat/phase-6-saas-features` then
+   `git checkout -b feat/phase-7-production-hardening`
+   (Phase 7 stacks on Phase 6 — do NOT branch from main.)
+2. Before writing code, post a Phase 7 plan: break it into small, independently-committable slices from HANDOVER §11 (security review, production-grade rate limiting, error-handling review, structured logging/alerting, performance, CI/CD, Docker optimization) and fold in the relevant §12 follow-ups (real auth/authz, Slack security hardening, notification integration coverage, scheduler observability). Wait for my go-ahead on the slice order.
 3. Build slice by slice. After each slice: run the full quality gate (format/lint/typecheck/test/build) and commit with a conventional message. Keep Clean Architecture and per-`workspaceId` tenant scoping throughout.
 
 ## Still ask-first (unchanged)
-- Push, PR, merge, rebase, dependency installs, deploy, and any production/long-running test runs.
-- For Phase 6 specifically: confirm with me before adding the Stripe SDK or any new dependency, and before creating Stripe-related secrets/config.
+- Commit, push, PR, merge, rebase, dependency installs, deploy, and any production/long-running test runs.
 ```
 
-Do not begin Phase 6 work in the current branch unless explicitly instructed.
+Do not begin Phase 7 work in the current branch unless explicitly instructed.
