@@ -129,4 +129,36 @@ describe('NotificationService', () => {
     await expect(svc.notifyFollowUpDue('w1', 'item-1')).resolves.toBe(false);
     expect(notifier.dmUser).not.toHaveBeenCalled();
   });
+
+  it('delivers a digest DM and records an item-less NOTIFIED event', async () => {
+    const { svc, notifier, events, workspaces } = build();
+    const items = [
+      { permanentQueueId: 'MQ-1', title: 'A', summary: null, priority: 'Red' as const },
+      { permanentQueueId: 'MQ-2', title: 'B', summary: null, priority: 'Green' as const },
+    ];
+
+    await expect(svc.notifyDigest('w1', 'owner-1', items)).resolves.toBe(true);
+
+    expect(workspaces.findUserById).toHaveBeenCalledWith('w1', 'owner-1');
+    expect(notifier.dmUser).toHaveBeenCalledWith(
+      'w1',
+      'U1',
+      expect.objectContaining({ text: expect.stringContaining('2 items') }),
+    );
+    expect(events.record).toHaveBeenCalledWith({
+      workspaceId: 'w1',
+      eventType: QueueEventType.NOTIFIED,
+      actorWorkspaceUserId: 'owner-1',
+      metadata: { kind: 'digest', count: 2 },
+    });
+  });
+
+  it('skips the digest when the owner cannot be resolved', async () => {
+    const { svc, notifier, events, workspaces } = build();
+    workspaces.findUserById.mockResolvedValue(null);
+
+    await expect(svc.notifyDigest('w1', 'owner-1', [])).resolves.toBe(false);
+    expect(notifier.dmUser).not.toHaveBeenCalled();
+    expect(events.record).not.toHaveBeenCalled();
+  });
 });

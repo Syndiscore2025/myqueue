@@ -20,3 +20,11 @@ export {
   type FollowUpNotifier,
   type ReminderDedupe,
 } from './follow-up-reminder-service';
+export {
+  DigestService,
+  digestService,
+  DIGEST_DEDUPE_TTL_SECONDS,
+  type DigestServiceDeps,
+  type DigestNotifier,
+  type DigestDedupe,
+} from './digest-service';

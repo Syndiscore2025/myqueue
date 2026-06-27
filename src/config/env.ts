@@ -68,6 +68,10 @@ export const envSchema = z.object({
   QUEUE_FOLLOW_UP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
   // Maximum due follow-ups the reminder sweep processes per tick.
   QUEUE_FOLLOW_UP_BATCH_SIZE: z.coerce.number().int().positive().default(200),
+  // Interval, in seconds, between daily-digest sweeps. Each sweep DMs a queue
+  // summary to owners in workspaces whose dailyDigestHourUtc equals the current
+  // UTC hour; a per-owner/day idempotency key keeps it to one digest per day.
+  QUEUE_DIGEST_INTERVAL_SECONDS: z.coerce.number().int().positive().default(900),
 
   SLACK_CLIENT_ID: z.string().default(''),
   SLACK_CLIENT_SECRET: z.string().default(''),

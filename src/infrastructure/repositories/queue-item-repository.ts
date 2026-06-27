@@ -278,6 +278,23 @@ export class QueueItemRepository {
   }
 
   /**
+   * List every owner's items within a workspace, optionally filtered by status.
+   * The cross-owner counterpart to {@link listByOwner}, used by the daily-digest
+   * sweep to gather a whole workspace's active items in one query before grouping
+   * by owner. Still strictly tenant-scoped by `workspaceId`.
+   */
+  async listByWorkspace(
+    workspaceId: string,
+    options: ListByOwnerOptions = {},
+  ): Promise<QueueItem[]> {
+    const where: Prisma.QueueItemWhereInput = { workspaceId };
+    if (options.statuses !== undefined) {
+      where.status = { in: [...options.statuses] };
+    }
+    return this.prisma.queueItem.findMany({ where, orderBy: { rankingTimestamp: 'asc' } });
+  }
+
+  /**
    * Apply mutable changes to an item, scoped by workspace. Returns the updated
    * row, or null when no item with that id exists in the workspace.
    */

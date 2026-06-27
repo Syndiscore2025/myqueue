@@ -16,6 +16,7 @@ import { slackNotifier } from '../../infrastructure/slack/slack-notifier';
 import { createLogger } from '../../utils/logger';
 import {
   buildAssignmentMessage,
+  buildDigestMessage,
   buildFollowUpDueMessage,
   buildSnoozeWakeMessage,
   type NotifiableItem,
@@ -85,6 +86,43 @@ export class NotificationService {
   /** Notify the owner that a follow-up reminder has come due. */
   async notifyFollowUpDue(workspaceId: string, queueItemId: string): Promise<boolean> {
     return this.notifyItem(workspaceId, queueItemId, 'follow-up-due');
+  }
+
+  /**
+   * DM an owner their daily digest of active items. The `items` must already be
+   * ranked/ordered by the caller; this method only resolves the owner, delivers
+   * the summary, and records a `NOTIFIED` event on success. Unlike the per-item
+   * notifications the digest is gated at the workspace level by the caller, so
+   * there is no preference check here. Fails safe: a missing owner or failed
+   * delivery returns `false` rather than throwing.
+   */
+  async notifyDigest(
+    workspaceId: string,
+    ownerWorkspaceUserId: string,
+    items: NotifiableItem[],
+  ): Promise<boolean> {
+    const user = await this.workspaces.findUserById(workspaceId, ownerWorkspaceUserId);
+    if (user === null) {
+      this.log.warn({ workspaceId, ownerWorkspaceUserId }, 'owner not found; skipping digest');
+      return false;
+    }
+
+    const delivered = await this.notifier.dmUser(
+      workspaceId,
+      user.slackUserId,
+      buildDigestMessage(items),
+    );
+    if (!delivered) {
+      return false;
+    }
+
+    await this.events.record({
+      workspaceId,
+      eventType: QueueEventType.NOTIFIED,
+      actorWorkspaceUserId: ownerWorkspaceUserId,
+      metadata: { kind: 'digest', count: items.length },
+    });
+    return true;
   }
 
   /**
