@@ -16,23 +16,26 @@
 │   │   └── app-info.ts           # Name/version from package.json
 │   ├── domain/
 │   │   ├── errors/               # ApplicationError hierarchy
+│   │   ├── billing/              # Pure plan model: tiers, entitlements, limit checks, BillingProvider port
 │   │   └── queue/                # Pure queue rules: ranking, status machine, priority
 │   ├── application/
 │   │   ├── queue/                # Queue use cases: service + claim/recovery/retry/DLQ/registry/statistics + events
+│   │   ├── billing/             # Billing use cases: BillingService, EntitlementService, UsageService
 │   │   ├── notifications/        # Notifier port, NotificationService, message builders, follow-up/digest sweeps
 │   │   └── slack/                # Slack use cases: identity → QueueContext, retry idempotency guard
 │   ├── infrastructure/
 │   │   ├── database/prisma.ts    # Prisma client + health
 │   │   ├── redis/redis.ts        # Redis connections + health
 │   │   ├── crypto/               # AES-256-GCM TokenService (token encryption)
-│   │   ├── repositories/         # Tenant-scoped Prisma repositories (incl. queue)
+│   │   ├── billing/             # Native Stripe BillingProvider (fetch + HMAC) + event/status mappers
+│   │   ├── repositories/         # Tenant-scoped Prisma repositories (incl. queue + workspace billing)
 │   │   └── slack/                # Bolt app, InstallationStore, StateStore, SlackNotifier
 │   ├── interfaces/
 │   │   ├── http/
 │   │   │   ├── app.ts            # Express app assembly (+ Slack receiver mount)
 │   │   │   ├── openapi.ts        # OpenAPI document (from Zod)
 │   │   │   ├── middleware/       # security, logging, rate limit, errors, workspace context
-│   │   │   └── routes/           # health + /api/v1/queue (incl. processing) + /api/v1/workers
+│   │   │   └── routes/           # health + /api/v1/queue + /workers + /billing + /workspace + /admin + /analytics
 │   │   └── slack/                # Bolt adapters: App Home, /myqueue, shortcut, actions + Block Kit views
 │   ├── queues/
 │   │   └── queue-manager.ts      # BullMQ queue/worker registry
@@ -62,8 +65,8 @@
 | Directory          | Responsibility                                             |
 | ------------------ | --------------------------------------------------------- |
 | `config/`          | Environment validation and application metadata.          |
-| `domain/`          | Framework-free business model and errors (queue rules).   |
-| `application/`     | Use-case orchestration (queue service + processing engine; notifications; Slack identity/idempotency).|
+| `domain/`          | Framework-free business model and errors (queue rules; billing plans/entitlements).|
+| `application/`     | Use-case orchestration (queue service + processing engine; notifications; Slack identity/idempotency; billing/entitlements).|
 | `infrastructure/`  | Adapters to external systems (DB, Redis, integrations).   |
 | `interfaces/http/` | HTTP delivery: Express app, routes, middleware, OpenAPI.  |
 | `interfaces/slack/`| Slack delivery: thin Bolt adapters and Block Kit presenters.|
