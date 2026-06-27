@@ -62,6 +62,13 @@ export const envSchema = z.object({
   // specified at item creation time.
   QUEUE_RATE_LIMIT_DEFAULT_MAX_ITEMS: z.coerce.number().int().positive().default(100),
 
+  // --- Automation & notifications (Phase 5) ---
+  // Interval, in seconds, between follow-up reminder sweeps. The sweep DMs the
+  // owner of each FollowUp item whose follow_up_due_at <= now().
+  QUEUE_FOLLOW_UP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
+  // Maximum due follow-ups the reminder sweep processes per tick.
+  QUEUE_FOLLOW_UP_BATCH_SIZE: z.coerce.number().int().positive().default(200),
+
   SLACK_CLIENT_ID: z.string().default(''),
   SLACK_CLIENT_SECRET: z.string().default(''),
   SLACK_SIGNING_SECRET: z.string().default(''),

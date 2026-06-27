@@ -106,6 +106,26 @@ export interface ActivateDueSnoozedParams {
   now?: Date;
 }
 
+/**
+ * A `FollowUp` item whose reminder has come due, carrying only the fields the
+ * follow-up reminder sweep needs to dedupe and notify.
+ */
+export interface DueFollowUpItem {
+  id: string;
+  workspaceId: string;
+  permanentQueueId: string;
+  /** The due time that fired this reminder; feeds the per-item dedupe key. */
+  followUpDueAt: Date;
+}
+
+/** Inputs for a single follow-up reminder sweep. */
+export interface ListDueFollowUpsParams {
+  /** Maximum number of due follow-ups to return in this sweep. */
+  batchSize: number;
+  /** Clock instant used as the "now" threshold; defaults to new Date(). */
+  now?: Date;
+}
+
 /** Inputs for a single batch recovery sweep. */
 export interface RecoverExpiredParams {
   /** Maximum number of expired-lock rows to reclaim in this sweep. */
@@ -560,6 +580,34 @@ export class QueueItemRepository {
         q."workspace_id" AS "workspaceId",
         q."permanent_queue_id" AS "permanentQueueId"
     `);
+  }
+
+  /**
+   * List `FollowUp` items across all workspaces whose `follow_up_due_at` has
+   * passed, oldest due first and bounded by `batchSize`. A read-only sweep input
+   * for the follow-up reminder service; tenant isolation is preserved because the
+   * caller notifies each item's own workspace/owner.
+   */
+  async listDueFollowUps(params: ListDueFollowUpsParams): Promise<DueFollowUpItem[]> {
+    const now = params.now ?? new Date();
+    const rows = await this.prisma.queueItem.findMany({
+      where: { status: QueueStatus.FollowUp, followUpDueAt: { not: null, lte: now } },
+      orderBy: { followUpDueAt: 'asc' },
+      take: params.batchSize,
+      select: { id: true, workspaceId: true, permanentQueueId: true, followUpDueAt: true },
+    });
+    return rows.flatMap((r) =>
+      r.followUpDueAt === null
+        ? []
+        : [
+            {
+              id: r.id,
+              workspaceId: r.workspaceId,
+              permanentQueueId: r.permanentQueueId,
+              followUpDueAt: r.followUpDueAt,
+            },
+          ],
+    );
   }
 
   /** List a workspace's dead-lettered items, oldest dead-lettered first. */

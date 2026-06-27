@@ -12,3 +12,11 @@ export {
   notificationService,
   type NotificationServiceDeps,
 } from './notification-service';
+export {
+  FollowUpReminderService,
+  followUpReminderService,
+  FOLLOW_UP_DEDUPE_TTL_SECONDS,
+  type FollowUpReminderServiceDeps,
+  type FollowUpNotifier,
+  type ReminderDedupe,
+} from './follow-up-reminder-service';

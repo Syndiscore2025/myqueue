@@ -36,6 +36,8 @@ export {
   type ExtendLeaseParams,
   type RecoveredItem,
   type ActivatedItem,
+  type DueFollowUpItem,
+  type ListDueFollowUpsParams,
   type RecoverExpiredParams,
   type CompleteProcessingParams,
   type ReleaseProcessingParams,

@@ -8,7 +8,7 @@ import {
   queueRecoveryService,
   queueRecurrenceService,
 } from '../application/queue';
-import { notificationService } from '../application/notifications';
+import { followUpReminderService, notificationService } from '../application/notifications';
 
 /**
  * Background worker process entrypoint.
@@ -16,7 +16,8 @@ import { notificationService } from '../application/notifications';
  * Phase 3B: starts the queue recovery loop (expired Processing -> New).
  * Phase 3C: starts the queue activation loop (due Snoozed -> New via availableAt)
  *           and the recurrence loop (cron rules -> QueueItems).
- * Phase 5:  DMs the owner when a snoozed item wakes back into the active queue.
+ * Phase 5:  DMs the owner when a snoozed item wakes back into the active queue,
+ *           and runs the follow-up reminder loop (due FollowUp items -> DM).
  */
 async function bootstrap(): Promise<void> {
   await Promise.allSettled([connectDatabase(), connectRedis()]);
@@ -37,9 +38,13 @@ async function bootstrap(): Promise<void> {
   queueRecoveryService.start();
   queueActivationService.start();
   queueRecurrenceService.start();
-  logger.info('worker runtime started with queue recovery, activation, and recurrence loops');
+  followUpReminderService.start();
+  logger.info(
+    'worker runtime started with queue recovery, activation, recurrence, and follow-up reminder loops',
+  );
 
   registerShutdownHandlers(async () => {
+    followUpReminderService.stop();
     queueRecurrenceService.stop();
     queueActivationService.stop();
     queueRecoveryService.stop();
