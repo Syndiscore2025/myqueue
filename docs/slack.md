@@ -31,13 +31,16 @@ Store it as `SLACK_STATE_SECRET`.
 ## 2. Scopes
 
 Scopes are requested at install time and configured via env (CSV), so they can
-change without code edits. The Phase 2 defaults are the minimal,
-Marketplace-friendly set:
+change without code edits. The defaults are the minimal, Marketplace-friendly
+set:
 
 ```
-SLACK_BOT_SCOPES=commands,chat:write,users:read,team:read
+SLACK_BOT_SCOPES=commands,chat:write,im:write,users:read,team:read
 SLACK_USER_SCOPES=
 ```
+
+`im:write` is added in Phase 5 so the notifier can open a DM channel
+(`conversations.open`) before posting; `chat:write` covers the message itself.
 
 Set the **same** bot scopes under **OAuth & Permissions → Scopes → Bot Token
 Scopes** in the portal so the consent screen matches.
@@ -86,7 +89,7 @@ SLACK_CLIENT_ID=...
 SLACK_CLIENT_SECRET=...
 SLACK_SIGNING_SECRET=...
 SLACK_STATE_SECRET=...           # 64 hex chars
-SLACK_BOT_SCOPES=commands,chat:write,users:read,team:read
+SLACK_BOT_SCOPES=commands,chat:write,im:write,users:read,team:read
 SLACK_USER_SCOPES=
 ENCRYPTION_KEY=...               # 64 hex chars; encrypts tokens at rest
 ```
@@ -134,7 +137,42 @@ The Phase 4 surfaces need no new scopes — `commands` and the Phase 2 set suffi
 - **Shortcuts**: add a **message** shortcut named "Add to MyQueue".
 - **Slash Commands**: create `/myqueue` pointing at the same Request URL.
 
-## 7. Marketplace notes
+## 7. Notifications (Phase 5)
+
+Phase 5 adds proactive Slack DMs so owners hear about queue events without
+polling the App Home tab. A `Notifier` port in the application layer keeps the
+delivery mechanism behind an interface; the `SlackNotifier`
+(`src/infrastructure/slack`) implements it by resolving the workspace's
+encrypted bot token, opening a DM channel, and posting a Block Kit message.
+`NotificationService` orchestrates each notification: it gates on the relevant
+per-workspace preference, resolves the target user, sends, and records a
+`NOTIFIED` audit event.
+
+| Notification     | Source                                   | Preference            |
+| ---------------- | ---------------------------------------- | --------------------- |
+| Assignment       | `assign()` (skips self-assignment)       | `notifyOnAssignment`  |
+| Snooze wake-up   | Activation sweep `onActivated` callback  | `notifyOnSnoozeWake`  |
+| Follow-up due    | Follow-up reminder sweep                 | `notifyOnFollowUpDue` |
+| Daily digest     | Hourly digest sweep                      | `dailyDigestEnabled`  |
+
+The two background sweeps mirror the Phase 3C scheduler: an overlap-guarded
+`tick`, bounded batches, idempotent start/stop. Each DM is deduped with a
+Redis-backed idempotency key — per item + due-time for follow-ups, per
+workspace + owner + UTC date for the digest — so a re-run within the same window
+never double-sends. Every delivery path fails safe: a notification can never
+break the use case or sweep that requested it.
+
+Defaults: assignment, snooze-wake, and follow-up notifications are **on**; the
+daily digest is **off** until a workspace enables it (`dailyDigestHourUtc`
+defaults to `13`). See [`environment.md`](./environment.md) for the sweep
+interval/batch env vars.
+
+### Portal configuration
+
+Phase 5 adds the `im:write` bot scope (see §2) so the notifier can open DM
+channels. No other portal changes are required.
+
+## 8. Marketplace notes
 
 - Tokens are never stored in plaintext; encryption is handled by the repository
   layer using `ENCRYPTION_KEY`.

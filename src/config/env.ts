@@ -79,10 +79,12 @@ export const envSchema = z.object({
   SLACK_STATE_SECRET: z.string().default(''),
   SLACK_APP_TOKEN: z.string().default(''),
   // Bot/user OAuth scopes requested during installation. Stored as CSV so the
-  // requested scope set can be changed without code changes.
+  // requested scope set can be changed without code changes. Phase 5 adds
+  // `im:write` so the notifier can open a DM channel (conversations.open) before
+  // posting; `chat:write` covers the message itself.
   SLACK_BOT_SCOPES: z
     .string()
-    .default('commands,chat:write,users:read,team:read')
+    .default('commands,chat:write,im:write,users:read,team:read')
     .transform(splitCsv),
   SLACK_USER_SCOPES: z.string().default('').transform(splitCsv),
 

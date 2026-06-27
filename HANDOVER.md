@@ -1,8 +1,8 @@
 # MyQueue Handover Report
 
 > Onboarding document for the next engineer/agent. It captures the current state
-> after Phase 3, the rules that must be followed, the branch model, validation
-> commands, what remains for Phases 4–8, and recommended gaps to close before a
+> through Phase 5, the rules that must be followed, the branch model, validation
+> commands, what remains for Phases 6–8, and recommended gaps to close before a
 > public launch.
 
 ---
@@ -29,9 +29,9 @@ architecture and delivered in stacked branches by phase.
 
 - **Repo:** `github.com/Syndiscore2025/myqueue`.
 - Work is done as stacked branches. Do not commit phase work directly to `main`.
-- Current Phase 4 branch: `feat/phase-4-slack-experience`.
-- Phase 4 was branched from `feat/phase-3c-scheduled-orchestration` and should
-  target that branch if a PR is opened.
+- Current Phase 5 branch: `feat/phase-5-automation-notifications`.
+- Phase 5 was branched from `feat/phase-4-slack-experience` and should target
+  that branch if a PR is opened.
 - Use conventional commits and commit completed slices separately.
 - **Ask before:** push, PR creation, merge, rebase, dependency install, deploy,
   production data changes, or long/expensive staging-scale tests.
@@ -48,8 +48,8 @@ architecture and delivered in stacked branches by phase.
 | Phase 3B | Worker processing, leases, recovery, retries, DLQ, stats | ✅ Complete |
 | Phase 3C | Scheduling, delay, snooze, recurrence, rate limits, dependencies, partitions | ✅ Core complete |
 | Phase 4 | Slack Experience | ✅ Complete (on branch) |
-| Phase 5 | Automation & Notifications | ⏭️ Next |
-| Phase 6 | SaaS Features | 🔒 Future |
+| Phase 5 | Automation & Notifications | ✅ Complete (on branch) |
+| Phase 6 | SaaS Features | ⏭️ Next |
 | Phase 7 | Production Hardening | 🔒 Future |
 | Phase 8 | Marketplace Readiness | 🔒 Future |
 
@@ -220,21 +220,63 @@ Latest validation run after Phase 4 completion:
 
 ---
 
-## 9. Remaining phases
+## 9. Phase 5 — Automation & Notifications (complete on branch)
 
-### Phase 5 — Automation & Notifications
+**Goal achieved:** the queue proactively reaches out over Slack DM. A `Notifier`
+port (`src/application/notifications`) keeps delivery behind an interface; the
+`SlackNotifier` (`src/infrastructure/slack`) implements it. `NotificationService`
+gates each notification on the relevant per-workspace preference, resolves the
+target user, sends, and records a `NOTIFIED` audit event. See
+[docs/slack.md](docs/slack.md) §7.
 
-**Goal:** Complete the workflow.
+Delivered:
 
-Deliverables:
+- Schema: notification preference columns on `WorkspaceQueueSettings`
+  (`notifyOnAssignment`, `notifyOnSnoozeWake`, `notifyOnFollowUpDue` default on;
+  `dailyDigestEnabled` default off; `dailyDigestHourUtc` default `13`), the
+  `NOTIFIED` `QueueEventType`, and `WorkspaceRepository.findUserById`.
+- `Notifier` port + `NotificationMessage`, with pure Block Kit message builders
+  for assignment, snooze-wake, follow-up-due, and digest.
+- `SlackNotifier` — resolves the encrypted bot token, opens a DM channel, posts;
+  fails safe (logs + returns `false`, never throws).
+- Assignment notification fired from `QueueService.assign()` (skips
+  self-assignment), wired fire-and-forget via an optional dependency.
+- Snooze wake-up via an optional `onActivated` callback on the activation sweep.
+- `FollowUpReminderService` — sweeps due `FollowUp` items, deduped per item +
+  due-time, and DMs each owner.
+- `DigestService` — hourly sweep that ranks each due workspace's active items per
+  owner and DMs a summary, deduped per workspace + owner + UTC date.
+- New env vars (`QUEUE_FOLLOW_UP_INTERVAL_SECONDS`, `QUEUE_FOLLOW_UP_BATCH_SIZE`,
+  `QUEUE_DIGEST_INTERVAL_SECONDS`) and both sweeps wired into the worker
+  bootstrap.
 
-- Follow-up reminders.
-- Snooze reminders / wakeups.
-- Assignment notifications.
-- Direct-message notifications.
-- Queue digest or summary notifications.
-- Audit log visibility for user-facing actions.
-- Notification preference controls.
+Phase 5 adds the `im:write` bot scope so the notifier can open DM channels
+(`conversations.open`); `chat:write` covers the message. No other portal changes
+are required.
+
+### Phase 5 commit list
+
+| Commit | Slice |
+| --- | --- |
+| `a6b5f74` | Notification prefs schema + `Notifier` port / `SlackNotifier` |
+| `17c7c41` | `NotificationService` + Block Kit message builders |
+| `59b5f60` | Assignment notification wiring |
+| `6eeb199` | Snooze wake-up notification wiring |
+| `f625302` | Follow-up reminder sweep |
+| `b496013` | Daily digest sweep |
+| `7cd53b5` | Phase 5 docs, `im:write` scope, and final gate |
+
+Latest validation run after Phase 5 completion:
+
+- `npm run format:check` ✅
+- `npm run lint` ✅
+- `npm run typecheck` ✅
+- `npm test` ✅ — 314 passed, 10 gated/skipped
+- `npm run build` ✅
+
+---
+
+## 10. Remaining phases
 
 ### Phase 6 — SaaS Features
 
@@ -287,7 +329,7 @@ Deliverables:
 
 ---
 
-## 10. Missing / recommended follow-ups
+## 11. Missing / recommended follow-ups
 
 These are the main items worth addressing before public production launch:
 
@@ -320,12 +362,14 @@ These are the main items worth addressing before public production launch:
 
 ---
 
-## 11. Suggested immediate next step
+## 12. Suggested immediate next step
 
-1. Optionally run the full gated integration suite locally (`RUN_INTEGRATION=true`).
-2. Open a PR for `feat/phase-4-slack-experience` into
-   `feat/phase-3c-scheduled-orchestration` after approval.
-3. Begin Phase 5 (Automation & Notifications) on a new stacked branch after
-   Phase 4 is accepted.
+1. Optionally run the full gated integration suite locally (`RUN_INTEGRATION=true`),
+   exercising the assignment/snooze/follow-up/digest notification paths against
+   local Postgres/Redis.
+2. Open a PR for `feat/phase-5-automation-notifications` into
+   `feat/phase-4-slack-experience` after approval.
+3. Begin Phase 6 (SaaS Features) on a new stacked branch after Phase 5 is
+   accepted.
 
-Do not begin Phase 5 work in the current branch unless explicitly instructed.
+Do not begin Phase 6 work in the current branch unless explicitly instructed.

@@ -75,7 +75,13 @@ describe('environment validation', () => {
 
   it('applies the default Slack bot scopes as a parsed list', () => {
     const env = parseEnv(validEnv);
-    expect(env.SLACK_BOT_SCOPES).toEqual(['commands', 'chat:write', 'users:read', 'team:read']);
+    expect(env.SLACK_BOT_SCOPES).toEqual([
+      'commands',
+      'chat:write',
+      'im:write',
+      'users:read',
+      'team:read',
+    ]);
     expect(env.SLACK_USER_SCOPES).toEqual([]);
   });
 
