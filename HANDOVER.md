@@ -417,12 +417,79 @@ These are the main items worth addressing before public production launch:
 1. ✅ Done — the post-Phase 5 privacy refactor is committed (`3a3e6e5`) and the
    optional `summary` backfill migration is added (`015ead3`, not yet applied to
    any database). See §9.
-2. Optionally run the full gated integration suite locally (`RUN_INTEGRATION=true`),
-   exercising the assignment/snooze/follow-up/digest notification paths against
-   local Postgres/Redis.
-3. Open a PR for `feat/phase-5-automation-notifications` into
-   `feat/phase-4-slack-experience` after approval.
-4. Begin Phase 6 (SaaS Features) on a new stacked branch after Phase 5 is
-   accepted.
+2. Skip the gated `RUN_INTEGRATION=true` run for this PR — it only re-covers queue
+   concurrency/perf (unchanged on this branch) and does not exercise the
+   notification paths. Net-new notification integration coverage is deferred to
+   Phase 7 (see §11.4). The local gate is green: format / lint / typecheck /
+   test (316) / build.
+3. Push `feat/phase-5-automation-notifications` and open a PR into
+   `feat/phase-4-slack-experience` (push the base branch first if it is not yet on
+   the remote). Pushing and PR creation require approval.
+4. After the PR is open, continue into Phase 6 (SaaS Features) on a NEW branch
+   stacked on `feat/phase-5-automation-notifications` (not `main`, and without
+   waiting for the Phase 5 PR to merge). Post a slice plan and wait for go-ahead
+   before writing billing / plan-enforcement logic.
+
+Ready-to-use prompts for the next agent covering steps 3–4 are in §13.
+
+---
+
+## 13. Next-agent execution prompts
+
+Two copy-paste prompts for the next agent: §13.1 drives the Phase 5 push + PR;
+§13.2 lets it continue into Phase 6 on a stacked branch. Together they implement
+§12 steps 3–4. (The first prompt's closing guardrail was reconciled to hand off
+to §13.2 instead of hard-stopping after the PR.)
+
+### 13.1 — Push and open the Phase 5 PR
+
+```text
+Approved — proceed. Stop asking and execute in this order. Answers to your questions are baked in below; where something is checkable, verify it with git yourself rather than asking me.
+
+## Decisions (don't re-litigate these)
+- Skip the gated RUN_INTEGRATION run. It only re-covers queue concurrency/perf (unchanged here) and does NOT exercise notification paths. No new signal, not worth standing up Postgres+Redis.
+- Defer notification integration coverage (HANDOVER §11.4) to Phase 7 as its own slice. It must NOT block this PR.
+- Quality gate is green (format/lint/typecheck/test 316/build). Good to ship.
+
+## Do this now
+1. Verify local state before anything else:
+   - `git status` (working tree must be clean),
+   - `git log --oneline -5` (confirm the 3 new commits 3a3e6e5, 015ead3, ae9d82e are present),
+   - `git branch -r` and `git ls-remote --heads origin` to determine what already exists on the remote.
+2. Determine the base branch state yourself:
+   - If `feat/phase-4-slack-experience` is NOT on origin, push it first so the PR has a valid base, THEN push the Phase 5 branch.
+   - If it IS on origin, just push the Phase 5 branch.
+   - Report what you found and what you pushed.
+3. Push `feat/phase-5-automation-notifications` to origin.
+4. Open the PR: base = `feat/phase-4-slack-experience`, head = `feat/phase-5-automation-notifications` (NOT main).
+5. Draft the PR description yourself from the Phase 5 commit history plus the post-Phase 5 privacy refactor. Include:
+   - a short summary of what Phase 5 delivers (assignment / snooze-wake / follow-up sweep / daily digest, Notifier port + SlackNotifier, per-workspace prefs, im:write scope),
+   - the privacy refactor (no message content stored; reference-only),
+   - the validation results (format/lint/typecheck/test 316/build all green),
+   - an explicit "Deferred" note pointing to §11.4 notification integration tests for Phase 7,
+   - a "Scopes" note that Phase 5 adds `im:write`.
+
+## Guardrails
+- Pushing and PR creation are the only remote actions approved here. Do NOT merge, rebase, or force-push.
+- After the PR is open, report the PR URL, the final commit list, the base/head branches, and anything you had to push to make the base valid — then proceed to the Phase 6 continuation prompt (§13.2).
+```
+
+### 13.2 — Continue into Phase 6 after the PR
+
+```text
+## After the PR is open — continue into Phase 6
+Once the Phase 5 PR is open and you've reported the PR URL + branch state, you ARE cleared to begin Phase 6 without waiting for the PR to merge. Do it like this:
+
+1. Create a NEW stacked branch off the Phase 5 branch:
+   `git checkout feat/phase-5-automation-notifications` then
+   `git checkout -b feat/phase-6-saas-features`
+   (Phase 6 stacks on Phase 5 — do NOT branch from main.)
+2. Before writing code, post a Phase 6 plan: break it into small, independently-committable slices from HANDOVER §10 (admin panel, billing/Stripe, plan enforcement, workspace settings UI/API, analytics/usage reporting, tenant-isolation tests, partner API docs if needed). Wait for my go-ahead on the slice order, since Stripe/billing has product decisions.
+3. Build slice by slice. After each slice: run the full quality gate (format/lint/typecheck/test/build) and commit with a conventional message. Keep Clean Architecture and per-`workspaceId` tenant scoping throughout.
+
+## Still ask-first (unchanged)
+- Push, PR, merge, rebase, dependency installs, deploy, and any production/long-running test runs.
+- For Phase 6 specifically: confirm with me before adding the Stripe SDK or any new dependency, and before creating Stripe-related secrets/config.
+```
 
 Do not begin Phase 6 work in the current branch unless explicitly instructed.
