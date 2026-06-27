@@ -42,6 +42,14 @@ export interface CreateItemInput {
   ownerWorkspaceUserId?: string;
   priority?: QueuePriority;
   sourceType?: QueueSourceType;
+  /**
+   * Privacy-safe references back to an originating Slack message. We persist only
+   * pointers (channel/message/thread ids and a permalink), never the message body.
+   */
+  sourceSlackChannelId?: string | null;
+  sourceSlackMessageTs?: string | null;
+  sourceSlackThreadTs?: string | null;
+  sourceSlackPermalink?: string | null;
 }
 
 /** Optional side-data for a status change (e.g. snooze/follow-up timing). */
@@ -126,6 +134,10 @@ export class QueueService {
       summary: input.summary ?? null,
       priority,
       ...(input.sourceType === undefined ? {} : { sourceType: input.sourceType }),
+      sourceSlackChannelId: input.sourceSlackChannelId ?? null,
+      sourceSlackMessageTs: input.sourceSlackMessageTs ?? null,
+      sourceSlackThreadTs: input.sourceSlackThreadTs ?? null,
+      sourceSlackPermalink: input.sourceSlackPermalink ?? null,
     });
     await this.events.record({
       workspaceId: ctx.workspaceId,

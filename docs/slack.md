@@ -111,7 +111,7 @@ Surfaces:
 | ------------------- | -------------------------------- | -------------------------------------------------------- |
 | App Home dashboard  | `app_home_opened` event          | Publishes the user's ranked queue with priority/status filters. |
 | `/myqueue` command  | Slash command                    | Navigates the queue/priority/status views from any channel.     |
-| Add to MyQueue      | Message shortcut (`message_action`) | Turns the selected message into a `SLACK_MESSAGE` item.       |
+| Add to MyQueue      | Message shortcut (`message_action`) | Captures a privacy-safe reference to the message as a `SLACK_MESSAGE` item. |
 | Item actions        | Block Kit buttons / overflow     | Start, Follow Up, Waiting, Snooze, Complete, Archive, Refresh.  |
 
 Per-item buttons are gated by the domain lifecycle state machine, so only legal
@@ -124,6 +124,15 @@ message) are guarded by a Redis-backed one-time claim keyed on the Slack payload
 id (`trigger_id` / event id), so Slack retries never double-process. The guard
 fails open: a transient cache outage degrades to "may run twice" rather than
 "never runs".
+
+**Privacy — no message content is stored.** The "Add to MyQueue" shortcut never
+copies the message body into MyQueue. The item title is a generic label derived
+from the channel name (e.g. `Slack message in #deploys`), and we persist only a
+privacy-safe reference: the channel id, message timestamp, thread timestamp, and
+a permalink back to the original. The permalink is built from the shortcut
+payload metadata alone (`team.domain` + `channel.id` + `message_ts`) — no API
+call and no message text is read. Clicking through opens the message in Slack,
+where Slack's own access controls still apply.
 
 ### Portal configuration
 
