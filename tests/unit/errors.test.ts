@@ -4,6 +4,7 @@ import {
   ForbiddenError,
   InternalServerError,
   NotFoundError,
+  PaymentRequiredError,
   UnauthorizedError,
   ValidationError,
   isApplicationError,
@@ -13,6 +14,10 @@ describe('application errors', () => {
   it('maps each error to the correct status code and code', () => {
     expect(new ValidationError('x')).toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
     expect(new UnauthorizedError('x')).toMatchObject({ statusCode: 401, code: 'UNAUTHORIZED' });
+    expect(new PaymentRequiredError('x')).toMatchObject({
+      statusCode: 402,
+      code: 'PLAN_LIMIT_EXCEEDED',
+    });
     expect(new ForbiddenError('x')).toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
     expect(new NotFoundError('x')).toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
     expect(new ConflictError('x')).toMatchObject({ statusCode: 409, code: 'CONFLICT' });
