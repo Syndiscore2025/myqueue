@@ -247,8 +247,12 @@ throughput scales with database round-trip latency and connection-pool width
 rather than CPU. Statistics are computed with aggregate queries that stay fast at
 depth (sub-20 ms for 10k items in local sampling), and recovery is bounded per
 sweep by `QUEUE_RECOVERY_BATCH_SIZE`. The performance suite measures claim,
-recovery, and statistics latency over a bounded sample at 1k/10k depth;
-authoritative large-scale numbers are captured on an isolated/staging database.
+recovery, and statistics latency over a bounded sample at 1k/10k depth, plus the
+scheduler-orchestration hot paths — activation sweep, recurrence sweep,
+rate-limit checks, and dependency-heavy and partition-gated claims — over bounded
+samples so the `claimNext` gate joins and sweep batches are exercised end to end.
+All numbers are logged (not asserted), gated by `RUN_INTEGRATION`; authoritative
+large-scale numbers are captured on an isolated/staging database.
 
 ### Configuration reference
 
