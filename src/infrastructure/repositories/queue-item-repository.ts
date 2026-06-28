@@ -200,6 +200,29 @@ export interface QueueStatistics {
   longestProcessingJobMs: number | null;
 }
 
+/**
+ * Operational view of items the scheduler is gating. `pendingActivation` is the
+ * umbrella count of items whose single claim gate (`availableAt`) is still in the
+ * future; the `snoozed`/`scheduled`/`delayed`/`blocked` breakdown explains why
+ * each item is gated (these overlap the umbrella, not each other necessarily).
+ */
+export interface SchedulerStatistics {
+  /** Items in the Snoozed status awaiting their wake time. */
+  snoozed: number;
+  /** New items with an explicit `scheduledFor` still in the future. */
+  scheduled: number;
+  /** New items with an explicit `delayUntil` still in the future. */
+  delayed: number;
+  /** Items with a `blockedUntil` (dependency/rate-limit gate) still in the future. */
+  blocked: number;
+  /** All items whose `availableAt` claim gate has not yet passed. */
+  pendingActivation: number;
+  /** Soonest `availableAt` among gated items — the scheduler's next wake. */
+  nextActivationAt: Date | null;
+  /** Creation time of the longest-waiting gated item. */
+  oldestPendingCreatedAt: Date | null;
+}
+
 /** Shape of the single-row raw aggregate query backing {@link QueueStatistics}. */
 interface StatisticsAggregateRow {
   oldestQueuedAt: Date | null;
@@ -772,6 +795,46 @@ export class QueueItemRepository {
       longestProcessingJobMs: agg?.longestProcessingJobMs ?? null,
       totalRetries: agg?.totalRetries ?? 0,
       averageRetryCount: agg?.averageRetryCount ?? null,
+    };
+  }
+
+  /**
+   * Compute the workspace's scheduler-gating statistics: how many items the
+   * activation sweep is holding back and why, the next wake time, and the
+   * longest-waiting gated item. Strictly tenant-scoped by `workspaceId`.
+   */
+  async getSchedulerStatistics(
+    workspaceId: string,
+    now: Date = new Date(),
+  ): Promise<SchedulerStatistics> {
+    const pendingWhere: Prisma.QueueItemWhereInput = { workspaceId, availableAt: { gt: now } };
+    const [snoozed, scheduled, delayed, blocked, pendingActivation, pendingAgg] = await Promise.all(
+      [
+        this.prisma.queueItem.count({ where: { workspaceId, status: QueueStatus.Snoozed } }),
+        this.prisma.queueItem.count({
+          where: { workspaceId, status: QueueStatus.New, scheduledFor: { not: null, gt: now } },
+        }),
+        this.prisma.queueItem.count({
+          where: { workspaceId, status: QueueStatus.New, delayUntil: { not: null, gt: now } },
+        }),
+        this.prisma.queueItem.count({
+          where: { workspaceId, blockedUntil: { not: null, gt: now } },
+        }),
+        this.prisma.queueItem.count({ where: pendingWhere }),
+        this.prisma.queueItem.aggregate({
+          where: pendingWhere,
+          _min: { availableAt: true, createdAt: true },
+        }),
+      ],
+    );
+    return {
+      snoozed,
+      scheduled,
+      delayed,
+      blocked,
+      pendingActivation,
+      nextActivationAt: pendingAgg._min.availableAt ?? null,
+      oldestPendingCreatedAt: pendingAgg._min.createdAt ?? null,
     };
   }
 }
