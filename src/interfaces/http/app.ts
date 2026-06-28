@@ -7,6 +7,7 @@ import { logger } from '../../utils/logger';
 import {
   compressionMiddleware,
   corsMiddleware,
+  docsSecurityHeaders,
   errorHandler,
   notFoundHandler,
   rateLimiter,
@@ -67,8 +68,9 @@ export function createApp(): Application {
   // Infrastructure routes.
   app.use(healthRouter);
 
-  // Application API. Internal/development-safe: tenant context is supplied via
-  // headers (see workspaceContext guard) until production session auth lands.
+  // Application API. Each route is guarded by the workspaceContext/workerContext
+  // middleware, which require an Authorization: Bearer token in production and
+  // only fall back to explicit tenant headers in development/test.
   app.use('/api/v1/queue', queueRouter);
   app.use('/api/v1/workers', workersRouter);
   app.use('/api/v1/workspace', workspaceRouter);
@@ -76,11 +78,12 @@ export function createApp(): Application {
   app.use('/api/v1/admin', adminRouter);
   app.use('/api/v1/analytics', analyticsRouter);
 
-  // API documentation.
-  app.get('/openapi.json', (_req, res) => {
+  // API documentation. The Swagger UI page needs inline scripts/styles, so the
+  // docs routes carry a relaxed CSP while the rest of the API stays strict.
+  app.get('/openapi.json', docsSecurityHeaders, (_req, res) => {
     res.json(openApiDocument);
   });
-  app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
+  app.use('/docs', docsSecurityHeaders, swaggerUi.serve, swaggerUi.setup(openApiDocument));
 
   // Terminal handlers.
   app.use(notFoundHandler);

@@ -69,6 +69,19 @@ describe('infrastructure HTTP endpoints', () => {
     expect(res.body.paths['/health']).toBeDefined();
   });
 
+  it('serves a strict CSP (no inline scripts) on the API surface', async () => {
+    const res = await request(app).get('/health');
+    const csp = res.headers['content-security-policy'];
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).not.toContain("'unsafe-inline'");
+  });
+
+  it('relaxes the CSP only on the docs routes', async () => {
+    const res = await request(app).get('/openapi.json');
+    const csp = res.headers['content-security-policy'];
+    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
+  });
+
   it('unknown routes return the standard error envelope via the error middleware', async () => {
     const res = await request(app).get('/does-not-exist');
     expect(res.status).toBe(404);
