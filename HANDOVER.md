@@ -50,7 +50,7 @@ architecture and delivered in stacked branches by phase.
 | ~~Phase 4~~ | ~~Slack Experience~~ | ✅ Complete (on branch) |
 | ~~Phase 5~~ | ~~Automation & Notifications~~ | ✅ Complete (on branch) |
 | ~~Phase 6~~ | ~~SaaS Features~~ | ✅ Complete (on branch) |
-| Phase 7 | Production Hardening | 🔄 In progress (Slices 1–7 done; see §11) |
+| ~~Phase 7~~ | ~~Production Hardening~~ | ✅ Complete (Slices 1–10; see §11) |
 | Phase 8 | Marketplace Readiness | 🔒 Future |
 
 **Important note:** Phase 3C's core orchestration work is implemented and tests
@@ -385,15 +385,15 @@ stacked on top of it).
 
 ## 11. Remaining phases
 
-### Phase 7 — Production Hardening (in progress)
+### Phase 7 — Production Hardening (complete)
 
 **Goal:** Make it reliable and operationally safe.
 
 Work is on `feat/phase-7-production-hardening`, stacked on
-`feat/phase-6-saas-features`. Each slice is committed separately after a green
+`feat/phase-6-saas-features`. Each slice was committed separately after a green
 full quality gate.
 
-#### Completed slices (committed on branch)
+#### Slice commit table
 
 | Commit | Slice | What it delivered |
 | --- | --- | --- |
@@ -404,26 +404,25 @@ full quality gate.
 | `c15d869` | 5 — Error-handling & logging review | Added a fail-safe `AlertSink` port + `alertError` helper fired on non-operational errors in the HTTP handler and on `uncaughtException`/`unhandledRejection`; widened Pino redaction for secret fields and nested headers; confirmed the `ApplicationError` envelope masks correctly in production. |
 | `d08c299` | 6 — Performance benchmarks | Added bounded `RUN_INTEGRATION` benchmarks for the orchestration hot paths (activation sweep, recurrence sweep, rate-limit checks, dependency-heavy claims, partition claims) and documented the expanded suite in `queue-engine.md`. |
 | `bfa1aa4` | 7 — Notification & concurrency integration coverage | New `tests/integration/notifications.test.ts` covers the Phase 5 DM paths (assignment, snooze-wake, follow-up with dedupe re-sweep, digest grouping + same-day dedupe), asserting `NOTIFIED` audit events and preference gating; extended `queue-concurrency.test.ts` with deterministic partition single-in-flight and rate-limit bucket gate tests under concurrent claimers. |
+| `ddf4d38` | 8 — CI/CD | Hardened the GitHub Actions pipeline: applies Prisma migrations (`prisma migrate deploy`) before the gate so the `RUN_INTEGRATION=true` suites run against a real schema; added `AUTH_TOKEN_SECRET` to the job env and `workflow_dispatch`; the `docker` job builds the `runtime` image with GHA cache after `verify`. |
+| `73537ec` | 9 — Docker optimization | Added a thin `migrate` Dockerfile stage (ships the Prisma CLI + schema + migrations, non-root) and a one-shot Compose `migrate` service; the API and worker now gate on `service_completed_successfully` so they never start against an unmigrated database. Runtime image stays lean (no Prisma CLI / dev deps). |
+| `d4dfa28` | 10 — Deployment & operations docs | New `docs/deployment.md`: topology, required prod config, deploy procedure, expand/contract migration rule, tag-swap rollback, backups/recovery, and operational runbooks (worker stalls, recurring-rule failures, DLQ growth, migration failures, Slack outages). Linked from the README. |
 
-Latest validation run (after Slice 7): format ✅ · lint ✅ · typecheck ✅ ·
-test ✅ (420 passed, 18 gated/skipped) · build ✅.
+Latest validation run (after Slice 10): format ✅ · lint ✅ · typecheck ✅ ·
+test ✅ (420 passed, 18 gated/skipped) · build ✅; Docker `runtime` + `migrate`
+targets build clean.
 
-#### Completed slices (Slices 4–7)
+#### Slices 4–10 (delivered this phase)
 
 4. ✅ ~~**Observability — health/readiness + scheduler stats.**~~ Done (`250eb62`).
 5. ✅ ~~**Error-handling & structured-logging review.**~~ Done (`c15d869`).
 6. ✅ ~~**Performance improvements.**~~ Done (`d08c299`).
 7. ✅ ~~**Notification & concurrency integration coverage.**~~ Done (`bfa1aa4`).
+8. ✅ ~~**CI/CD.**~~ Done (`ddf4d38`).
+9. ✅ ~~**Docker optimization.**~~ Done (`73537ec`).
+10. ✅ ~~**Deployment guides & rollback procedures.**~~ Done (`d4dfa28`).
 
-#### Remaining slices (in order)
-
-8. **CI/CD.** Ensure the GitHub Actions pipeline runs the full gate (incl. gated
-   integration) and builds the Docker image.
-9. **Docker optimization.** Multi-stage build, smaller runtime layer, non-root
-   user, healthcheck.
-10. **Deployment guides & rollback procedures.** Deployment runbook, rollback
-    steps, and the operational runbooks from §12.9; refresh `queue-engine` /
-    `testing` docs (§12.6).
+**Phase 7 is complete.** Next is Phase 8 (Marketplace Readiness).
 
 ### Phase 8 — Marketplace Readiness
 
@@ -480,17 +479,18 @@ These are the main items worth addressing before public production launch:
 5. ✅ ~~**Performance benchmarks.**~~ _Addressed in Phase 7 Slice 6 (`d08c299`)._ Bounded
    benchmarks capture activation, recurrence processing, rate-limit checks,
    dependency-heavy claims, and partition claims under `RUN_INTEGRATION`.
-6. **Documentation refresh.** README, `architecture`, `environment`, `slack`, and
-   `folder-structure` are current through Phase 6. Still pending: refresh
-   `queue-engine` and `testing` with the final Phase 3B/3C APIs, worker loops, and
-   operational guidance.
+6. ✅ ~~**Documentation refresh.**~~ _Addressed across Phases 6–7._ `queue-engine`
+   and `testing` were refreshed with the Phase 3B/3C APIs and the CI gate;
+   operational guidance now lives in `docs/deployment.md` (Phase 7 Slice 10,
+   `d4dfa28`).
 7. **Circular dependency protection.** Confirm dependency creation rejects cycles
    with tests; if missing, add it before exposing dependency APIs broadly.
 8. ✅ ~~**Rate-limit behavior under concurrency.**~~ _Addressed in Phase 7 Slice 7
    (`bfa1aa4`)._ A concurrent integration test proves a full bucket gates parallel
    claims and reopens once capacity frees.
-9. **Operational runbooks.** Add runbooks for worker stalls, recurring-rule failures,
-   DLQ growth, migration failures, and Slack API outages.
+9. ✅ ~~**Operational runbooks.**~~ _Addressed in Phase 7 Slice 10 (`d4dfa28`)._
+   `docs/deployment.md` adds runbooks for worker stalls, recurring-rule failures,
+   DLQ growth, migration failures, and Slack API outages, plus deploy/rollback.
 10. **Secrets management.** Ensure no Slack, Stripe, database, or signing secrets are
     exposed to client code, logs, command arguments, or generated documentation.
 11. **Marketplace legal/docs.** Privacy policy, terms, data retention, deletion, and
@@ -511,17 +511,19 @@ These are the main items worth addressing before public production launch:
 ## 13. Suggested immediate next step
 
 1. ✅ Done — Phase 6 (SaaS Features) is complete on `feat/phase-6-saas-features`.
-2. 🔄 In progress — Phase 7 (Production Hardening) on
-   `feat/phase-7-production-hardening`, stacked on the Phase 6 branch. Slices 1–7
-   (Redis rate limiting, signed bearer-token auth, CSP/Slack-signature hardening,
-   observability, error/logging review, performance benchmarks, and notification/
-   concurrency integration coverage) are committed and gate-green; see §11 for the
-   commit table.
-3. **Next: Slice 8 — CI/CD.** Ensure the GitHub Actions pipeline runs the full gate
-   (incl. gated integration) and builds the Docker image. Then continue down the
-   ordered remaining slices in §11 (Docker optimization, deployment/rollback docs).
-   Build each slice, run the full gate, and commit separately with a conventional
-   message — committing requires approval.
+2. ✅ Done — Phase 7 (Production Hardening) is complete on
+   `feat/phase-7-production-hardening`, stacked on the Phase 6 branch. All ten
+   slices (Redis rate limiting, signed bearer-token auth, CSP/Slack-signature
+   hardening, observability, error/logging review, performance benchmarks,
+   notification/concurrency integration coverage, CI/CD, Docker optimization, and
+   deployment/rollback docs) are committed and gate-green; see §11 for the commit
+   table.
+3. **Next: Phase 8 — Marketplace Readiness.** Open the Phase 7 → Phase 6 PR (and
+   the Phase 6 → main chain) for review, then begin the Phase 8 checklist: privacy
+   policy, terms, data retention/deletion, OAuth/scope review, branding, user/admin
+   guides, and the release checklist — gating a public Slack Marketplace listing.
+   The remaining §12 items (#7 circular-dependency tests, #11 legal/docs, #12
+   notification-preference UI, #13 digest timezones) feed into Phase 8.
 4. **Verify the Phase 6 PR state** before relying on the §14 prompts: check
    `git ls-remote --heads origin` and the repo's open PRs to confirm whether the
    Phase 6 branch was pushed and a PR opened. The §14.1 commit/push/PR prompt is
