@@ -9,6 +9,7 @@ import {
 } from '../../../domain/errors';
 import { isProduction } from '../../../config';
 import { logger } from '../../../utils/logger';
+import { alertError } from '../../../utils/alerting';
 
 interface ErrorBody {
   error: {
@@ -47,6 +48,7 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     );
   } else {
     log.error({ err: appError, code: appError.code }, appError.message);
+    alertError(appError, { source: 'http', code: appError.code, requestId });
   }
 
   if (res.headersSent) {

@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { alertError } from './alerting';
 
 type ShutdownTask = () => Promise<void> | void;
 
@@ -44,11 +45,13 @@ export function registerShutdownHandlers(task: ShutdownTask): void {
 
   process.on('uncaughtException', (error) => {
     logger.fatal({ err: error }, 'uncaught exception');
+    alertError(error, { source: 'uncaughtException' });
     void runShutdown('uncaughtException', 1);
   });
 
   process.on('unhandledRejection', (reason) => {
     logger.fatal({ err: reason }, 'unhandled promise rejection');
+    alertError(reason, { source: 'unhandledRejection' });
     void runShutdown('unhandledRejection', 1);
   });
 }
