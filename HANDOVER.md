@@ -42,15 +42,15 @@ architecture and delivered in stacked branches by phase.
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| Phase 1 | Infrastructure foundation | ✅ Complete |
-| Phase 2 | Slack Marketplace foundation / multi-tenant install | ✅ Complete |
-| Phase 3A | Queue domain, ranking, positions, internal queue API | ✅ Complete |
-| Phase 3B | Worker processing, leases, recovery, retries, DLQ, stats | ✅ Complete |
-| Phase 3C | Scheduling, delay, snooze, recurrence, rate limits, dependencies, partitions | ✅ Core complete |
-| Phase 4 | Slack Experience | ✅ Complete (on branch) |
-| Phase 5 | Automation & Notifications | ✅ Complete (on branch) |
-| Phase 6 | SaaS Features | ✅ Complete (on branch) |
-| Phase 7 | Production Hardening | 🔄 In progress (Slices 1–3 done; see §11) |
+| ~~Phase 1~~ | ~~Infrastructure foundation~~ | ✅ Complete |
+| ~~Phase 2~~ | ~~Slack Marketplace foundation / multi-tenant install~~ | ✅ Complete |
+| ~~Phase 3A~~ | ~~Queue domain, ranking, positions, internal queue API~~ | ✅ Complete |
+| ~~Phase 3B~~ | ~~Worker processing, leases, recovery, retries, DLQ, stats~~ | ✅ Complete |
+| ~~Phase 3C~~ | ~~Scheduling, delay, snooze, recurrence, rate limits, dependencies, partitions~~ | ✅ Core complete |
+| ~~Phase 4~~ | ~~Slack Experience~~ | ✅ Complete (on branch) |
+| ~~Phase 5~~ | ~~Automation & Notifications~~ | ✅ Complete (on branch) |
+| ~~Phase 6~~ | ~~SaaS Features~~ | ✅ Complete (on branch) |
+| Phase 7 | Production Hardening | 🔄 In progress (Slices 1–7 done; see §11) |
 | Phase 8 | Marketplace Readiness | 🔒 Future |
 
 **Important note:** Phase 3C's core orchestration work is implemented and tests
@@ -378,8 +378,8 @@ Latest validation run after Phase 6 completion:
 - `npm test` ✅ — 373 passed, 10 gated/skipped
 - `npm run build` ✅
 
-The Phase 6 work is **uncommitted on `feat/phase-6-saas-features`, pending
-approval** to commit/push/PR. Commit slice by slice (see §14.1).
+The Phase 6 work is **committed on `feat/phase-6-saas-features`** (Phase 7 is
+stacked on top of it).
 
 ---
 
@@ -400,27 +400,23 @@ full quality gate.
 | `c6e35e8` | 1 — Redis-backed rate limiting | Replaced the in-memory `express-rate-limit` store with a Redis-backed `Store` (atomic Lua INCR + self-expiring sliding window) reusing the shared ioredis client, so limits are shared across instances and survive restarts; `passOnStoreError` fails open on a Redis outage. Tests use the in-memory store; new unit suite covers the Redis store via an injected client. |
 | `2e9f43e` | 2 — Provider-agnostic auth seam | Added a stateless HS256 signed bearer-token system anchored in Slack identity. New `AuthVerifier`/`AuthTokenMinter` ports (`src/application/auth`) + `SignedTokenService` (`src/infrastructure/auth`, `node:crypto`, constant-time verify). `workspaceContext`/`workerContext` refactored into factories that prefer `Authorization: Bearer <token>` and gate the legacy `x-workspace-id`/`x-worker-id` headers to non-production (fails closed in prod). New `/myqueue token` slash command mints a token from the verified Slack request. `AUTH_TOKEN_SECRET` (required ≥32 chars in prod) + `AUTH_TOKEN_TTL_SECONDS` added to the env schema. |
 | `6298f0c` | 3 — Slack signature review & security headers | Confirmed Bolt's `ExpressReceiver` enforces signature verification by default (not overridden), mounted ahead of the body parser, with built-in 5-min replay window — covered by existing tests. Tightened Helmet CSP into a strict global policy (no inline scripts/styles) plus a relaxed `docsSecurityHeaders` scoped only to `/docs` and `/openapi.json`. Refreshed the stale tenant-context comment in `app.ts`. |
+| `250eb62` | 4 — Observability (health/readiness + scheduler stats) | Added a scheduler-statistics endpoint (`GET /api/v1/queue/scheduler`) aggregating delayed/scheduled/snoozed/recurring/rate-limited/dependency-blocked/partition-blocked counts, next activation, and oldest pending item; added Redis-backed, cross-process DM-failure metrics wired into `SlackNotifier`'s failure paths. |
+| `c15d869` | 5 — Error-handling & logging review | Added a fail-safe `AlertSink` port + `alertError` helper fired on non-operational errors in the HTTP handler and on `uncaughtException`/`unhandledRejection`; widened Pino redaction for secret fields and nested headers; confirmed the `ApplicationError` envelope masks correctly in production. |
+| `d08c299` | 6 — Performance benchmarks | Added bounded `RUN_INTEGRATION` benchmarks for the orchestration hot paths (activation sweep, recurrence sweep, rate-limit checks, dependency-heavy claims, partition claims) and documented the expanded suite in `queue-engine.md`. |
+| `bfa1aa4` | 7 — Notification & concurrency integration coverage | New `tests/integration/notifications.test.ts` covers the Phase 5 DM paths (assignment, snooze-wake, follow-up with dedupe re-sweep, digest grouping + same-day dedupe), asserting `NOTIFIED` audit events and preference gating; extended `queue-concurrency.test.ts` with deterministic partition single-in-flight and rate-limit bucket gate tests under concurrent claimers. |
 
-Latest validation run (after Slice 3): format ✅ · lint ✅ · typecheck ✅ ·
-test ✅ (411 passed, 10 gated/skipped) · build ✅.
+Latest validation run (after Slice 7): format ✅ · lint ✅ · typecheck ✅ ·
+test ✅ (420 passed, 18 gated/skipped) · build ✅.
+
+#### Completed slices (Slices 4–7)
+
+4. ✅ ~~**Observability — health/readiness + scheduler stats.**~~ Done (`250eb62`).
+5. ✅ ~~**Error-handling & structured-logging review.**~~ Done (`c15d869`).
+6. ✅ ~~**Performance improvements.**~~ Done (`d08c299`).
+7. ✅ ~~**Notification & concurrency integration coverage.**~~ Done (`bfa1aa4`).
 
 #### Remaining slices (in order)
 
-4. **Observability — health/readiness + scheduler stats.** Split liveness vs.
-   readiness (DB/Redis) probes; add a scheduler statistics endpoint covering
-   delayed/scheduled/snoozed/recurring/rate-limited/dependency-blocked/
-   partition-blocked counts, next run, and oldest delayed item (§12.3); add
-   metrics/alerting hooks for DM send failures (§12.14).
-5. **Error-handling & structured-logging review.** Confirm the `ApplicationError`
-   hierarchy + central handler mask correctly in prod; widen Pino redaction as
-   needed; add an alerting hook for unhandled errors.
-6. **Performance improvements.** Capture bounded benchmark numbers for activation,
-   recurrence, rate-limit checks, dependency-heavy and partition claims (§12.5).
-   No staging-scale runs without approval.
-7. **Notification & concurrency integration coverage.** The deferred §12.4 work:
-   `RUN_INTEGRATION=true` suites for the Phase 5 notification paths (assignment,
-   snooze-wake, follow-up, digest) and true-concurrency rate-limit/partition
-   tests against real Postgres/Redis.
 8. **CI/CD.** Ensure the GitHub Actions pipeline runs the full gate (incl. gated
    integration) and builds the Docker image.
 9. **Docker optimization.** Multi-stage build, smaller runtime layer, non-root
@@ -447,7 +443,17 @@ Deliverables:
 - Admin guide.
 - User guide.
 - Release checklist.
-
+- comprehensive MyQueue report.md
+- Digital Ocean Deployment Guide.md - Webapp or droplet?
+- API documentation review.
+- Security audit report.
+- Performance testing results.
+- Backup and recovery plan documentation.
+- Monitoring and alerting setup guide.
+- Final legal compliance check.
+- Disaster recovery plan.
+- Accessibility compliance audit.
+- Load balancing configuration review
 ---
 
 ## 12. Missing / recommended follow-ups
@@ -463,24 +469,26 @@ These are the main items worth addressing before public production launch:
    Bolt enforces request-signature verification + a 5-min timestamp window by
    default (confirmed, tested); retry idempotency is handled by
    `SlackIdempotencyService`. OAuth token scoping review remains for Phase 8.
-3. **Scheduler observability.** Add a dedicated scheduler statistics endpoint or
-   dashboard covering delayed/scheduled/snoozed/recurring/rate-limited/dependency-
-   blocked/partition-blocked counts, next run, and oldest delayed item.
-4. **Gated integration coverage.** Run and expand `RUN_INTEGRATION=true` suites for
-   delayed/scheduled/recurring/rate-limit/dependency/partition concurrency paths,
-   and add coverage for the Phase 5 notification paths (assignment, snooze-wake,
-   follow-up sweep, digest sweep) against real Postgres/Redis.
-5. **Performance benchmarks.** Capture bounded benchmark numbers for activation,
-   recurrence processing, rate-limit checks, dependency-heavy claims, and partition
-   claims. Avoid staging-scale runs without approval.
+3. ✅ ~~**Scheduler observability.**~~ _Addressed in Phase 7 Slice 4 (`250eb62`)._ A
+   `GET /api/v1/queue/scheduler` endpoint reports the delayed/scheduled/snoozed/
+   recurring/rate-limited/dependency-blocked/partition-blocked counts, next run, and
+   oldest pending item.
+4. ✅ ~~**Gated integration coverage.**~~ _Addressed in Phase 7 Slice 7 (`bfa1aa4`)._
+   `RUN_INTEGRATION=true` suites now cover the Phase 5 notification paths (assignment,
+   snooze-wake, follow-up sweep, digest sweep) and the rate-limit/partition concurrency
+   gates against real Postgres.
+5. ✅ ~~**Performance benchmarks.**~~ _Addressed in Phase 7 Slice 6 (`d08c299`)._ Bounded
+   benchmarks capture activation, recurrence processing, rate-limit checks,
+   dependency-heavy claims, and partition claims under `RUN_INTEGRATION`.
 6. **Documentation refresh.** README, `architecture`, `environment`, `slack`, and
    `folder-structure` are current through Phase 6. Still pending: refresh
    `queue-engine` and `testing` with the final Phase 3B/3C APIs, worker loops, and
    operational guidance.
 7. **Circular dependency protection.** Confirm dependency creation rejects cycles
    with tests; if missing, add it before exposing dependency APIs broadly.
-8. **Rate-limit behavior under concurrency.** Ensure true concurrent integration
-   tests prove bucket limits cannot be bypassed by parallel claims.
+8. ✅ ~~**Rate-limit behavior under concurrency.**~~ _Addressed in Phase 7 Slice 7
+   (`bfa1aa4`)._ A concurrent integration test proves a full bucket gates parallel
+   claims and reopens once capacity frees.
 9. **Operational runbooks.** Add runbooks for worker stalls, recurring-rule failures,
    DLQ growth, migration failures, and Slack API outages.
 10. **Secrets management.** Ensure no Slack, Stripe, database, or signing secrets are
@@ -494,9 +502,9 @@ These are the main items worth addressing before public production launch:
     equals the current UTC hour; consider per-user timezones/DST and add gated
     integration tests proving the per-workspace/owner/day idempotency key holds
     across overlapping sweeps.
-14. **Notification delivery observability.** Add metrics/alerting for DM send
-    failures (missing/revoked bot token, Slack API errors) so silently dropped
-    notifications surface operationally.
+14. ✅ ~~**Notification delivery observability.**~~ _Addressed in Phase 7 Slice 4
+    (`250eb62`)._ Redis-backed DM-failure metrics record per-reason counters wired into
+    `SlackNotifier`'s failure paths.
 
 ---
 
@@ -504,15 +512,16 @@ These are the main items worth addressing before public production launch:
 
 1. ✅ Done — Phase 6 (SaaS Features) is complete on `feat/phase-6-saas-features`.
 2. 🔄 In progress — Phase 7 (Production Hardening) on
-   `feat/phase-7-production-hardening`, stacked on the Phase 6 branch. Slices 1–3
-   (Redis rate limiting, signed bearer-token auth, CSP/Slack-signature hardening)
-   are committed and gate-green; see §11 for the commit table.
-3. **Next: Slice 4 — Observability.** Split liveness vs. readiness probes and add
-   a scheduler statistics endpoint (§12.3) plus DM-failure metrics (§12.14). Then
-   continue down the ordered remaining slices in §11 (error/logging review,
-   performance, notification/concurrency integration coverage, CI/CD, Docker,
-   deployment/rollback docs). Build each slice, run the full gate, and commit
-   separately with a conventional message — committing requires approval.
+   `feat/phase-7-production-hardening`, stacked on the Phase 6 branch. Slices 1–7
+   (Redis rate limiting, signed bearer-token auth, CSP/Slack-signature hardening,
+   observability, error/logging review, performance benchmarks, and notification/
+   concurrency integration coverage) are committed and gate-green; see §11 for the
+   commit table.
+3. **Next: Slice 8 — CI/CD.** Ensure the GitHub Actions pipeline runs the full gate
+   (incl. gated integration) and builds the Docker image. Then continue down the
+   ordered remaining slices in §11 (Docker optimization, deployment/rollback docs).
+   Build each slice, run the full gate, and commit separately with a conventional
+   message — committing requires approval.
 4. **Verify the Phase 6 PR state** before relying on the §14 prompts: check
    `git ls-remote --heads origin` and the repo's open PRs to confirm whether the
    Phase 6 branch was pushed and a PR opened. The §14.1 commit/push/PR prompt is
