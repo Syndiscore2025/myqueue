@@ -9,9 +9,12 @@ The `Dockerfile` has these stages:
 - **base** — Debian-slim Node 22 with OpenSSL (required by Prisma).
 - **deps** — installs all dependencies and generates the Prisma client.
 - **build** — compiles TypeScript to `dist/`.
+- **migrate** — ships the Prisma CLI, schema, and migrations so an orchestrator
+  can run `prisma migrate deploy` before the app starts. Runs as the non-root
+  `node` user.
 - **runtime** — production-only dependencies, the compiled `dist/`, and the
-  generated Prisma client. Runs as the non-root `node` user with a container
-  `HEALTHCHECK` hitting `/health`.
+  generated Prisma client (no Prisma CLI). Runs as the non-root `node` user with
+  a container `HEALTHCHECK` hitting `/health`.
 
 Build the production image directly:
 
@@ -31,8 +34,11 @@ docker compose up --build
 - PostgreSQL: `localhost:5432`
 - Redis: `localhost:6379`
 
-The API and worker wait for PostgreSQL and Redis to report **healthy** before
-starting (`depends_on: condition: service_healthy`).
+A one-shot `migrate` service runs `prisma migrate deploy` once PostgreSQL is
+**healthy**; the API and worker then wait for it to **complete successfully**
+(`depends_on: condition: service_completed_successfully`) so they never start
+against an unmigrated database. The same two services also wait for PostgreSQL
+and Redis to report **healthy**.
 
 ### Configuration
 

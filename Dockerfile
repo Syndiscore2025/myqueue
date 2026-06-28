@@ -28,6 +28,16 @@ COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npm run build
 
+# ----- Migrate ----------------------------------------------------------------
+# A thin stage that ships the Prisma CLI + schema + migrations so an orchestrator
+# can apply `prisma migrate deploy` against the database before the app starts.
+# It reuses the `deps` layer (which already has the CLI and the generated client)
+# rather than the slim runtime, which omits the CLI by design.
+FROM deps AS migrate
+ENV NODE_ENV=production
+USER node
+CMD ["npm", "run", "prisma:migrate"]
+
 # ----- Production runtime -----------------------------------------------------
 FROM base AS runtime
 ENV NODE_ENV=production
