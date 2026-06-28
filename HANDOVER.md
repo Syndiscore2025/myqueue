@@ -1,9 +1,9 @@
 # MyQueue Handover Report
 
 > Onboarding document for the next engineer/agent. It captures the current state
-> through Phase 6, the rules that must be followed, the branch model, validation
-> commands, what remains for Phases 7–8, and recommended gaps to close before a
-> public launch.
+> through Phase 6 and the in-progress Phase 7, the rules that must be followed,
+> the branch model, validation commands, what remains for Phases 7–8, and
+> recommended gaps to close before a public launch.
 
 ---
 
@@ -50,7 +50,7 @@ architecture and delivered in stacked branches by phase.
 | Phase 4 | Slack Experience | ✅ Complete (on branch) |
 | Phase 5 | Automation & Notifications | ✅ Complete (on branch) |
 | Phase 6 | SaaS Features | ✅ Complete (on branch) |
-| Phase 7 | Production Hardening | 🔒 Future |
+| Phase 7 | Production Hardening | 🔄 In progress (Slices 1–3 done; see §11) |
 | Phase 8 | Marketplace Readiness | 🔒 Future |
 
 **Important note:** Phase 3C's core orchestration work is implemented and tests
@@ -385,21 +385,49 @@ approval** to commit/push/PR. Commit slice by slice (see §14.1).
 
 ## 11. Remaining phases
 
-### Phase 7 — Production Hardening
+### Phase 7 — Production Hardening (in progress)
 
 **Goal:** Make it reliable and operationally safe.
 
-Deliverables:
+Work is on `feat/phase-7-production-hardening`, stacked on
+`feat/phase-6-saas-features`. Each slice is committed separately after a green
+full quality gate.
 
-- Security review.
-- Production-grade rate limiting.
-- Error handling review.
-- Structured logging and alerting review.
-- Performance improvements.
-- CI/CD.
-- Docker optimization.
-- End-to-end testing.
-- Deployment guides and rollback procedures.
+#### Completed slices (committed on branch)
+
+| Commit | Slice | What it delivered |
+| --- | --- | --- |
+| `c6e35e8` | 1 — Redis-backed rate limiting | Replaced the in-memory `express-rate-limit` store with a Redis-backed `Store` (atomic Lua INCR + self-expiring sliding window) reusing the shared ioredis client, so limits are shared across instances and survive restarts; `passOnStoreError` fails open on a Redis outage. Tests use the in-memory store; new unit suite covers the Redis store via an injected client. |
+| `2e9f43e` | 2 — Provider-agnostic auth seam | Added a stateless HS256 signed bearer-token system anchored in Slack identity. New `AuthVerifier`/`AuthTokenMinter` ports (`src/application/auth`) + `SignedTokenService` (`src/infrastructure/auth`, `node:crypto`, constant-time verify). `workspaceContext`/`workerContext` refactored into factories that prefer `Authorization: Bearer <token>` and gate the legacy `x-workspace-id`/`x-worker-id` headers to non-production (fails closed in prod). New `/myqueue token` slash command mints a token from the verified Slack request. `AUTH_TOKEN_SECRET` (required ≥32 chars in prod) + `AUTH_TOKEN_TTL_SECONDS` added to the env schema. |
+| `6298f0c` | 3 — Slack signature review & security headers | Confirmed Bolt's `ExpressReceiver` enforces signature verification by default (not overridden), mounted ahead of the body parser, with built-in 5-min replay window — covered by existing tests. Tightened Helmet CSP into a strict global policy (no inline scripts/styles) plus a relaxed `docsSecurityHeaders` scoped only to `/docs` and `/openapi.json`. Refreshed the stale tenant-context comment in `app.ts`. |
+
+Latest validation run (after Slice 3): format ✅ · lint ✅ · typecheck ✅ ·
+test ✅ (411 passed, 10 gated/skipped) · build ✅.
+
+#### Remaining slices (in order)
+
+4. **Observability — health/readiness + scheduler stats.** Split liveness vs.
+   readiness (DB/Redis) probes; add a scheduler statistics endpoint covering
+   delayed/scheduled/snoozed/recurring/rate-limited/dependency-blocked/
+   partition-blocked counts, next run, and oldest delayed item (§12.3); add
+   metrics/alerting hooks for DM send failures (§12.14).
+5. **Error-handling & structured-logging review.** Confirm the `ApplicationError`
+   hierarchy + central handler mask correctly in prod; widen Pino redaction as
+   needed; add an alerting hook for unhandled errors.
+6. **Performance improvements.** Capture bounded benchmark numbers for activation,
+   recurrence, rate-limit checks, dependency-heavy and partition claims (§12.5).
+   No staging-scale runs without approval.
+7. **Notification & concurrency integration coverage.** The deferred §12.4 work:
+   `RUN_INTEGRATION=true` suites for the Phase 5 notification paths (assignment,
+   snooze-wake, follow-up, digest) and true-concurrency rate-limit/partition
+   tests against real Postgres/Redis.
+8. **CI/CD.** Ensure the GitHub Actions pipeline runs the full gate (incl. gated
+   integration) and builds the Docker image.
+9. **Docker optimization.** Multi-stage build, smaller runtime layer, non-root
+   user, healthcheck.
+10. **Deployment guides & rollback procedures.** Deployment runbook, rollback
+    steps, and the operational runbooks from §12.9; refresh `queue-engine` /
+    `testing` docs (§12.6).
 
 ### Phase 8 — Marketplace Readiness
 
@@ -426,11 +454,15 @@ Deliverables:
 
 These are the main items worth addressing before public production launch:
 
-1. **Real authentication and authorization.** Queue APIs still rely on explicit
-   workspace/user/worker headers for development-safe internal use. Before public
-   exposure, add real session/JWT auth and enforce workspace membership.
-2. **Slack security hardening.** Phase 4 must verify Slack request signatures,
-   timestamp freshness, retry idempotency, and OAuth token scoping.
+1. ✅ **Real authentication and authorization.** _Addressed in Phase 7 Slice 2
+   (`2e9f43e`)._ HS256 signed bearer tokens anchored in Slack identity now guard
+   the queue APIs; the dev-only header path is disabled in production. Remaining
+   nuance: tokens are stateless (no server-side revocation list) — add revocation
+   only if a use case requires it.
+2. ✅ **Slack security hardening.** _Reviewed in Phase 7 Slice 3 (`6298f0c`)._
+   Bolt enforces request-signature verification + a 5-min timestamp window by
+   default (confirmed, tested); retry idempotency is handled by
+   `SlackIdempotencyService`. OAuth token scoping review remains for Phase 8.
 3. **Scheduler observability.** Add a dedicated scheduler statistics endpoint or
    dashboard covering delayed/scheduled/snoozed/recurring/rate-limited/dependency-
    blocked/partition-blocked counts, next run, and oldest delayed item.
@@ -470,27 +502,24 @@ These are the main items worth addressing before public production launch:
 
 ## 13. Suggested immediate next step
 
-1. ✅ Done — Phase 6 (SaaS Features) is fully implemented on
-   `feat/phase-6-saas-features`. The full quality gate is green: format / lint /
-   typecheck / test (373) / build. See §10.
-2. The Phase 6 work is **uncommitted** on the branch. Commit it slice by slice
-   with conventional messages (see the slice table in §10), keeping Clean
-   Architecture and per-`workspaceId` scoping intact. Committing requires
-   approval.
-3. Skip the gated `RUN_INTEGRATION=true` run for this PR — it only re-covers queue
-   concurrency/perf (unchanged on this branch) and does not exercise billing or
-   notification paths. Net-new notification integration coverage stays deferred to
-   Phase 7 (see §12.4).
-4. Push `feat/phase-6-saas-features` and open a PR into
-   `feat/phase-5-automation-notifications` (push the base branch first if it is not
-   yet on the remote). Pushing and PR creation require approval.
-5. After the PR is open, continue into Phase 7 (Production Hardening) on a NEW
-   branch stacked on `feat/phase-6-saas-features` (not `main`, and without waiting
-   for the Phase 6 PR to merge). Post a slice plan and fold in the relevant
-   follow-ups from §12 (real auth, Slack hardening, notification integration
-   coverage, observability) before writing code.
+1. ✅ Done — Phase 6 (SaaS Features) is complete on `feat/phase-6-saas-features`.
+2. 🔄 In progress — Phase 7 (Production Hardening) on
+   `feat/phase-7-production-hardening`, stacked on the Phase 6 branch. Slices 1–3
+   (Redis rate limiting, signed bearer-token auth, CSP/Slack-signature hardening)
+   are committed and gate-green; see §11 for the commit table.
+3. **Next: Slice 4 — Observability.** Split liveness vs. readiness probes and add
+   a scheduler statistics endpoint (§12.3) plus DM-failure metrics (§12.14). Then
+   continue down the ordered remaining slices in §11 (error/logging review,
+   performance, notification/concurrency integration coverage, CI/CD, Docker,
+   deployment/rollback docs). Build each slice, run the full gate, and commit
+   separately with a conventional message — committing requires approval.
+4. **Verify the Phase 6 PR state** before relying on the §14 prompts: check
+   `git ls-remote --heads origin` and the repo's open PRs to confirm whether the
+   Phase 6 branch was pushed and a PR opened. The §14.1 commit/push/PR prompt is
+   only relevant if that has not yet happened.
 
-Ready-to-use prompts for the next agent covering steps 2–5 are in §14.
+The §14 prompts predate Phase 7 starting; treat them as historical context and
+follow §13 above for the current next action.
 
 ---
 
