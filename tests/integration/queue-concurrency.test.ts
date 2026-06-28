@@ -30,8 +30,28 @@ async function seedWorkspace(): Promise<void> {
 async function cleanQueue(): Promise<void> {
   await prisma.queueEvent.deleteMany({ where: { workspaceId: WS } });
   await prisma.queueItem.deleteMany({ where: { workspaceId: WS } });
+  await prisma.queueRateLimitBucket.deleteMany({ where: { workspaceId: WS } });
   await prisma.workerRegistration.deleteMany({ where: { workspaceId: WS } });
   await prisma.workspaceQueueSettings.deleteMany({ where: { workspaceId: WS } });
+}
+
+/** Bulk-insert `n` New items sharing a partition and/or rate-limit key. */
+async function seedKeyed(opts: {
+  n: number;
+  partitionKey?: string;
+  rateLimitKey?: string;
+}): Promise<void> {
+  const base = Date.now();
+  const rows = Array.from({ length: opts.n }, (_, i) => ({
+    workspaceId: WS,
+    ownerWorkspaceUserId: USER,
+    permanentQueueId: formatPermanentQueueId(i + 1),
+    title: `keyed-${i + 1}`,
+    rankingTimestamp: new Date(base + i),
+    partitionKey: opts.partitionKey ?? null,
+    rateLimitKey: opts.rateLimitKey ?? null,
+  }));
+  await prisma.queueItem.createMany({ data: rows });
 }
 
 /** Bulk-insert `n` New items with deterministic, monotonically ranked ids. */
@@ -177,6 +197,72 @@ describeIntegration('queue concurrency', () => {
       expect(await countByStatus(QueueStatus.DeadLetter)).toBe(dlqCount);
       expect(await countByStatus(QueueStatus.New)).toBe(retryCount);
       expect(await countByStatus(QueueStatus.Processing)).toBe(0);
+    });
+  });
+
+  // A partition admits at most one in-flight item: while one item in the
+  // partition is Processing, no other item in that partition is claimable, even
+  // under concurrent claimers. The gate reopens once the in-flight item resolves.
+  describe('partition single-in-flight gate', () => {
+    it('blocks concurrent claims while one partition item is processing', async () => {
+      await seedKeyed({ n: 5, partitionKey: 'P1' });
+      const first = await queueClaimService.claim({ workspaceId: WS, workerId: 'w-part-1' });
+      if (first === null) throw new Error('expected the first claim to succeed');
+      expect(await countByStatus(QueueStatus.Processing)).toBe(1);
+
+      // Four workers race for the same partition; all are gated out by the live
+      // in-flight item, so each gets null and nothing else moves to Processing.
+      const racers = await Promise.all(
+        Array.from({ length: 4 }, (_, i) =>
+          queueClaimService.claim({ workspaceId: WS, workerId: `w-part-${i + 2}` }),
+        ),
+      );
+      expect(racers.every((r) => r === null)).toBe(true);
+      expect(await countByStatus(QueueStatus.Processing)).toBe(1);
+      expect(await countByStatus(QueueStatus.New)).toBe(4);
+
+      // Resolving the in-flight item reopens the partition for the next claim.
+      await prisma.queueItem.update({
+        where: { id: first.id },
+        data: { status: QueueStatus.Done },
+      });
+      const next = await queueClaimService.claim({ workspaceId: WS, workerId: 'w-part-next' });
+      expect(next).not.toBeNull();
+    });
+  });
+
+  // A full rate-limit bucket inside a live window gates every item sharing its
+  // key: concurrent claims all return null until capacity frees up (or the
+  // window expires), at which point the next claim succeeds.
+  describe('rate-limit bucket gate', () => {
+    it('blocks concurrent claims at capacity, then reopens when freed', async () => {
+      await seedKeyed({ n: 5, rateLimitKey: 'R1' });
+      await prisma.queueRateLimitBucket.create({
+        data: {
+          workspaceId: WS,
+          rateLimitKey: 'R1',
+          windowSeconds: 3600,
+          maxItems: 1,
+          currentCount: 1,
+          windowStartedAt: new Date(),
+        },
+      });
+
+      const racers = await Promise.all(
+        Array.from({ length: 5 }, (_, i) =>
+          queueClaimService.claim({ workspaceId: WS, workerId: `w-rl-${i + 1}` }),
+        ),
+      );
+      expect(racers.every((r) => r === null)).toBe(true);
+      expect(await countByStatus(QueueStatus.New)).toBe(5);
+
+      // Freeing capacity reopens the gate and the next claim succeeds.
+      await prisma.queueRateLimitBucket.update({
+        where: { workspaceId_rateLimitKey: { workspaceId: WS, rateLimitKey: 'R1' } },
+        data: { currentCount: 0 },
+      });
+      const next = await queueClaimService.claim({ workspaceId: WS, workerId: 'w-rl-next' });
+      expect(next).not.toBeNull();
     });
   });
 });
