@@ -15,7 +15,7 @@ databases:
   - name: myqueue-db
     databaseName: myqueue
     user: myqueue
-    plan: basic_256mb
+    plan: starter
     region: virginia
     postgresMajorVersion: "16"
     # Internal connections only; the app reaches it over Render's private network.
