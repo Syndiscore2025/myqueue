@@ -1,37 +1,17 @@
 # Render Blueprint for MyQueue.
 #
-# Provisions the full stack in one deploy:
-#   - managed PostgreSQL (myqueue-db)
-#   - managed Key Value / Redis (myqueue-cache)
+# Deploys the application services:
 #   - API web service (Docker) with pre-deploy schema migrations
 #   - background worker (Docker)
 #
-# Secrets are declared `sync: false` (no values committed) and entered once in
-# the Render dashboard for the shared env group. Datastore URLs are wired
-# automatically via fromDatabase / fromService — no connection strings handled
-# by hand. Deploy from the Render dashboard: New > Blueprint > select this repo.
-
-databases:
-  - name: myqueue-db
-    databaseName: myqueue
-    user: myqueue
-    plan: starter
-    region: virginia
-    postgresMajorVersion: "16"
-    # Internal connections only; the app reaches it over Render's private network.
-    ipAllowList: []
+# The managed datastores (Postgres "myqueue-db" and Key Value "myqueue-cache")
+# are provisioned separately and referenced by name via fromDatabase /
+# fromService, so no connection strings are handled by hand. Secrets are
+# declared `sync: false` on myqueue-api (no values committed) and prompted for
+# once at Blueprint creation; the worker reads the same values via fromService
+# references. Deploy: dashboard > New > Blueprint.
 
 services:
-  # ----- Key Value (Redis-compatible) store for BullMQ + rate limiting --------
-  - type: keyvalue
-    name: myqueue-cache
-    plan: starter
-    region: virginia
-    # BullMQ requires keys are never evicted out from under it.
-    maxmemoryPolicy: noeviction
-    # Internal connections only.
-    ipAllowList: []
-
   # ----- API (HTTP) -----------------------------------------------------------
   - type: web
     name: myqueue-api
@@ -45,7 +25,8 @@ services:
     domains:
       - app.myqueue.syndiscore.com
     envVars:
-      - fromGroup: myqueue-shared
+      - key: NODE_ENV
+        value: production
       - key: APP_BASE_URL
         value: https://app.myqueue.syndiscore.com
       - key: CORS_ORIGINS
@@ -63,39 +44,9 @@ services:
           type: keyvalue
           name: myqueue-cache
           property: connectionString
-
-  # ----- Background worker (BullMQ + scheduler loops) -------------------------
-  - type: worker
-    name: myqueue-worker
-    runtime: docker
-    region: virginia
-    plan: starter
-    dockerfilePath: ./Dockerfile
-    # Override the image's API entrypoint with the worker process.
-    dockerCommand: node dist/workers/index.js
-    envVars:
-      - fromGroup: myqueue-shared
-      - key: LOG_LEVEL
-        value: info
-      - key: DATABASE_URL
-        fromDatabase:
-          name: myqueue-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: myqueue-cache
-          property: connectionString
-
-# Shared config + secrets used by both the API and the worker. In production the
-# env schema requires the Slack credentials and AUTH_TOKEN_SECRET for EVERY
-# process, so the worker carries them too. Enter the sync:false values once in
-# the dashboard for this group.
-envVarGroups:
-  - name: myqueue-shared
-    envVars:
-      - key: NODE_ENV
-        value: production
+      # Secrets entered once in the dashboard at Blueprint creation. The worker
+      # reads these same values via fromService references below, so each is
+      # entered a single time on this service.
       - key: ENCRYPTION_KEY
         sync: false
       - key: AUTH_TOKEN_SECRET
@@ -108,3 +59,60 @@ envVarGroups:
         sync: false
       - key: SLACK_STATE_SECRET
         sync: false
+
+  # ----- Background worker (BullMQ + scheduler loops) -------------------------
+  - type: worker
+    name: myqueue-worker
+    runtime: docker
+    region: virginia
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    # Override the image's API entrypoint with the worker process.
+    dockerCommand: node dist/workers/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        fromDatabase:
+          name: myqueue-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: myqueue-cache
+          property: connectionString
+      # In production the env schema requires the Slack credentials,
+      # AUTH_TOKEN_SECRET and ENCRYPTION_KEY for EVERY process. Rather than
+      # re-entering them, the worker reads the values entered on myqueue-api.
+      - key: ENCRYPTION_KEY
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: ENCRYPTION_KEY
+      - key: AUTH_TOKEN_SECRET
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: AUTH_TOKEN_SECRET
+      - key: SLACK_CLIENT_ID
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: SLACK_CLIENT_ID
+      - key: SLACK_CLIENT_SECRET
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: SLACK_CLIENT_SECRET
+      - key: SLACK_SIGNING_SECRET
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: SLACK_SIGNING_SECRET
+      - key: SLACK_STATE_SECRET
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: SLACK_STATE_SECRET
