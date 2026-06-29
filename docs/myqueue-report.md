@@ -119,17 +119,37 @@ optional: with no Stripe credentials the surface is simply not mounted.
 - **HTTP hardening:** strict Helmet CSP, CORS allowlist, Redis-backed rate
   limiting shared across instances.
 
-Full control-by-control detail lives in the security audit (Phase 8 Slice 6).
+Full control-by-control detail lives in the
+[security audit](./security-audit.md).
 
 ## 10. Readiness status
 
 Phases 1–7 are complete, committed, and gate-green (format, lint, typecheck,
 test — 420 passed / 18 gated-skipped — and build). Docker `runtime` and `migrate`
-images build clean. Phase 8 produces the launch documentation set: this report,
-user/admin/installation guides, the Slack Marketplace + OAuth/scope review,
-templated legal/compliance docs, a DigitalOcean deployment guide, monitoring and
-disaster-recovery plans, audits/reports, and the final release checklist.
+images build clean.
 
-> Items still requiring business input before launch: the legal entity/contact
-> for the privacy policy and terms, the branding image assets, the production
-> domain, and the DigitalOcean deployment target (App Platform vs Droplet).
+Phase 8 (marketplace readiness) is the documentation and launch-readiness phase,
+and its document set is complete:
+
+- **Overview:** this report.
+- **Guides:** [installation](./installation.md), [user](./user-guide.md), and
+  [admin](./admin-guide.md) guides.
+- **Marketplace:** [Slack Marketplace readiness](./marketplace-readiness.md)
+  (OAuth flow + least-privilege scope review + branding specs).
+- **Legal/compliance (templated):** [privacy policy](./privacy-policy.md),
+  [terms of service](./terms-of-service.md), and
+  [compliance checklist](./compliance-checklist.md).
+- **Deployment & ops:** [DigitalOcean deployment](./digitalocean-deployment.md),
+  [monitoring & alerting](./monitoring-and-alerting.md), and
+  [disaster recovery](./disaster-recovery.md).
+- **Audits & reports:** [security](./security-audit.md),
+  [performance](./performance-results.md), [API](./api-review.md), and
+  [accessibility](./accessibility-audit.md).
+- **Gate:** the [release checklist](./release-checklist.md) go/no-go.
+
+> What remains before a public launch is business/legal, not engineering: the
+> legal entity/contact/jurisdiction for the privacy policy and terms, the
+> branding image assets, the production domain, and the DigitalOcean deployment
+> target (App Platform vs Droplet). These are flagged in-place with
+> `[BUSINESS]` / `[COUNSEL]` / `[DECISION]` markers; work them through the
+> [release checklist](./release-checklist.md).
