@@ -72,6 +72,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # The shared env schema requires APP_BASE_URL for every process, even the
+      # worker (which serves no HTTP). Mirror the API's value so it boots.
+      - key: APP_BASE_URL
+        value: https://app.myqueue.syndiscore.com
       - key: LOG_LEVEL
         value: info
       - key: DATABASE_URL
