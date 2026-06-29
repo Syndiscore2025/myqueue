@@ -86,6 +86,7 @@ function makeItem(over: Partial<QueueItem> = {}): QueueItem {
     sourceSlackMessageTs: null,
     sourceSlackThreadTs: null,
     sourceSlackPermalink: null,
+    sourceSlackMessageCount: 1,
     title: 'Title',
     summary: null,
     status: QueueStatus.Processing,

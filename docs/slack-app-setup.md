@@ -39,7 +39,7 @@ as secret environment variables on the `myqueue-api` service.
 ### 3. Set the bot token scopes (no domain needed yet)
 
 Go to **OAuth & Permissions** in the left sidebar. Scroll to
-**Scopes → Bot Token Scopes**. Add these five scopes exactly:
+**Scopes → Bot Token Scopes**. Add these scopes exactly:
 
 | Scope | Why |
 | ------------ | -------------------------------------------- |
@@ -48,9 +48,17 @@ Go to **OAuth & Permissions** in the left sidebar. Scroll to
 | `im:write` | Open DM channels for notifications |
 | `users:read` | Look up user info |
 | `team:read` | Read workspace info |
+| `channels:read` | Resolve public channel names/info |
+| `channels:history` | Receive public-channel message events |
+| `groups:read` | Resolve private channel names/info where invited |
+| `groups:history` | Receive private-channel events where invited |
+| `mpim:read` | Resolve group-DM info where allowed |
+| `mpim:history` | Receive group-DM events where allowed |
+| `im:history` | Receive app/bot DM events |
 
-Do **not** add anything else — extra scopes change the consent screen and may
-require Slack review.
+Do **not** add message-content scopes beyond these without a specific product
+reason. MyQueue stores attention pointers only — sender/channel ids, priority,
+timestamp, and Slack links — not message bodies.
 
 ---
 
@@ -115,6 +123,9 @@ https://app.myqueue.syndiscore.com/slack/oauth_redirect
 
 Then under **Shortcuts → Create New Shortcut → On messages:**
 
+This shortcut is a fallback/manual override. The primary workflow is automatic
+attention-pointer capture from observable message events.
+
 | Field | Value |
 | ----------- | ----------------------- |
 | Name | `Add to MyQueue` |
@@ -133,6 +144,10 @@ Under **Subscribe to bot events → Add Bot User Event:**
 | Event | Why |
 | ----------------- | ----------------------------- |
 | `app_home_opened` | Renders the App Home dashboard |
+| `message.channels` | Auto-captures observable public-channel attention pointers |
+| `message.groups` | Auto-captures observable private-channel attention pointers |
+| `message.mpim` | Auto-captures observable group-DM attention pointers |
+| `message.im` | Auto-captures app/bot DM attention pointers |
 
 ### 9. App Home
 

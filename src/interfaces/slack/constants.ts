@@ -28,6 +28,7 @@ export const SLACK_ACTION_IDS = {
   itemWaiting: 'mq_item_waiting',
   itemFollowUp: 'mq_item_followup',
   itemSnooze: 'mq_item_snooze',
+  itemResolved: 'mq_item_resolved',
   itemOpenChat: 'mq_item_open_chat',
   itemOverflow: 'mq_item_overflow',
 } as const;

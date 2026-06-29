@@ -93,7 +93,9 @@ export const envSchema = z.object({
   // posting; `chat:write` covers the message itself.
   SLACK_BOT_SCOPES: z
     .string()
-    .default('commands,chat:write,im:write,users:read,team:read')
+    .default(
+      'commands,chat:write,im:write,users:read,team:read,channels:read,channels:history,groups:read,groups:history,mpim:read,mpim:history,im:history',
+    )
     .transform(splitCsv),
   SLACK_USER_SCOPES: z.string().default('').transform(splitCsv),
 

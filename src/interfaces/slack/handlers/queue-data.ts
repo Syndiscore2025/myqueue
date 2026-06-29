@@ -52,6 +52,7 @@ export const ACTION_ID_TO_ITEM_ACTION: Readonly<Record<string, ItemAction>> = {
   [SLACK_ACTION_IDS.itemWaiting]: 'waiting',
   [SLACK_ACTION_IDS.itemFollowUp]: 'followup',
   [SLACK_ACTION_IDS.itemSnooze]: 'snooze',
+  [SLACK_ACTION_IDS.itemResolved]: 'complete',
 };
 
 /**

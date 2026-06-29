@@ -27,6 +27,7 @@ export interface QueueItemView {
   sourceSlackChannelId?: string | null;
   sourceSlackUserId?: string | null;
   sourceSlackPermalink?: string | null;
+  sourceSlackMessageCount?: number;
 }
 
 /** Coloured dot for each priority, used in list lines. */
@@ -54,11 +55,6 @@ export function escapeMrkdwn(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Keep untrusted labels from breaking Slack's `<url|label>` link syntax. */
-function escapeLinkLabel(text: string): string {
-  return escapeMrkdwn(text).replace(/\|/g, '¦');
-}
-
 /** Only render Slack entity links for ids that look like native Slack ids. */
 function slackChannelLink(channelId: string | null | undefined): string | null {
   return channelId !== null && channelId !== undefined && /^[A-Z0-9]+$/.test(channelId)
@@ -70,6 +66,10 @@ function slackUserLink(userId: string | null | undefined): string | null {
   return userId !== null && userId !== undefined && /^[A-Z0-9]+$/.test(userId)
     ? `<@${userId}>`
     : null;
+}
+
+function attentionTitle(item: QueueItemView): string | null {
+  return slackUserLink(item.sourceSlackUserId) ?? slackChannelLink(item.sourceSlackChannelId) ?? null;
 }
 
 /** URL buttons should only point back into Slack, never arbitrary destinations. */
@@ -138,6 +138,7 @@ const PRIMARY_ACTIONS: ReadonlyArray<{ to: QueueStatus; actionId: string; label:
   { to: QueueStatus.Waiting, actionId: SLACK_ACTION_IDS.itemWaiting, label: '⏳ Waiting' },
   { to: QueueStatus.FollowUp, actionId: SLACK_ACTION_IDS.itemFollowUp, label: '🔁 Follow Up' },
   { to: QueueStatus.Snoozed, actionId: SLACK_ACTION_IDS.itemSnooze, label: '😴 Snooze' },
+  { to: QueueStatus.Done, actionId: SLACK_ACTION_IDS.itemResolved, label: '✅ Resolved' },
 ];
 
 /** Build the per-item actions row, or null when no legal action remains. */
@@ -183,14 +184,15 @@ export function itemBlocks(
 ): KnownBlock[] {
   const title = escapeMrkdwn(item.title);
   const summary = item.summary === null ? '' : `\n${escapeMrkdwn(item.summary)}`;
-  const permalink = safeSlackPermalink(item.sourceSlackPermalink);
-  const titleText =
-    permalink === null ? `*${title}*` : `*<${permalink}|${escapeLinkLabel(item.title)}>*`;
+  const displayTitle = attentionTitle(item);
+  const titleText = displayTitle === null ? `*${title}*` : `*${displayTitle}*`;
   const user = slackUserLink(item.sourceSlackUserId);
   const source = slackChannelLink(item.sourceSlackChannelId);
   const sourceParts = [user, source].filter((part): part is string => part !== null);
   const sourceMeta = sourceParts.length === 0 ? '' : ` · Source ${sourceParts.join(' in ')}`;
-  const meta = `\`${item.permanentQueueId}\` · ${PRIORITY_EMOJI[item.priority]} ${item.priority} · ${STATUS_LABEL[item.status]}${sourceMeta}`;
+  const count = item.sourceSlackMessageCount ?? 1;
+  const countMeta = count > 1 ? ` · ${count} messages` : '';
+  const meta = `\`${item.permanentQueueId}\` · ${PRIORITY_EMOJI[item.priority]} ${item.priority} · ${STATUS_LABEL[item.status]}${countMeta}${sourceMeta}`;
   const blocks: KnownBlock[] = [
     section(`${PRIORITY_EMOJI[item.priority]} ${titleText}${summary}`),
     context(meta),

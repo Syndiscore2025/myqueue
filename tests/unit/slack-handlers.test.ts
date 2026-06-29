@@ -3,6 +3,8 @@ import type { App } from '@slack/bolt';
 jest.mock('../../src/application/queue', () => ({
   queueService: {
     createItem: jest.fn(),
+    createOrUpdateSlackAttention: jest.fn(),
+    completeSlackAttentionGroup: jest.fn(),
     getActiveQueue: jest.fn(),
     getWorkingQueue: jest.fn(),
     getFollowUpQueue: jest.fn(),
@@ -34,6 +36,10 @@ import {
   buildMessageTitle,
   registerShortcuts,
 } from '../../src/interfaces/slack/handlers/shortcuts';
+import {
+  mentionedUserIds,
+  registerMessageEvents,
+} from '../../src/interfaces/slack/handlers/message-events';
 import {
   parseOverflowValue,
   registerActions,
@@ -92,6 +98,7 @@ describe('applyItemAction', () => {
   it('maps primary action ids to item actions', () => {
     expect(ACTION_ID_TO_ITEM_ACTION[SLACK_ACTION_IDS.itemWorking]).toBe('working');
     expect(ACTION_ID_TO_ITEM_ACTION[SLACK_ACTION_IDS.itemSnooze]).toBe('snooze');
+    expect(ACTION_ID_TO_ITEM_ACTION[SLACK_ACTION_IDS.itemResolved]).toBe('complete');
   });
 
   it('routes each action through the matching service method', async () => {
@@ -268,6 +275,73 @@ describe('buildMessagePermalink', () => {
   it('returns null when the team domain is missing', () => {
     expect(buildMessagePermalink(undefined, 'C1', '1700000000.000100')).toBeNull();
     expect(buildMessagePermalink('', 'C1', '1700000000.000100')).toBeNull();
+  });
+});
+
+describe('mentionedUserIds', () => {
+  it('extracts unique Slack user mentions from mrkdwn', () => {
+    expect(mentionedUserIds('hi <@U1> and <@U2|Sarah> and <@U1>')).toEqual(['U1', 'U2']);
+  });
+});
+
+describe('registerMessageEvents', () => {
+  type Handler = (args: unknown) => Promise<void>;
+  function capture(): Handler {
+    let handler: Handler | undefined;
+    const app = {
+      event: (_name: string, h: Handler) => {
+        handler = h;
+      },
+    } as unknown as App;
+    registerMessageEvents(app);
+    return handler!;
+  }
+
+  it('auto-creates a name-only attention pointer for mentioned users', async () => {
+    mock(slackIdentityService.resolveContext)
+      .mockResolvedValueOnce({ workspaceId: 'w1', workspaceUserId: 'sender' })
+      .mockResolvedValueOnce({ workspaceId: 'w1', workspaceUserId: 'owner' });
+    mock(queueService.createOrUpdateSlackAttention).mockResolvedValue(item());
+    const getPermalink = jest.fn().mockResolvedValue({
+      permalink: 'https://acme.slack.com/archives/C1/p1700000000000100',
+    });
+    await capture()({
+      event: {
+        type: 'message',
+        user: 'U_SENDER',
+        channel: 'C1',
+        ts: '1700000000.000100',
+        text: 'please review this <@UOWNER>',
+      },
+      body: { event_id: 'Ev1' },
+      context: { teamId: 'T1' },
+      client: { chat: { getPermalink } },
+    });
+    expect(queueService.createOrUpdateSlackAttention).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workspaceUserId: 'sender' },
+      expect.objectContaining({
+        title: 'Slack attention',
+        ownerWorkspaceUserId: 'owner',
+        priority: QueuePriority.Yellow,
+        sourceType: 'SLACK_MESSAGE',
+        sourceSlackChannelId: 'C1',
+        sourceSlackUserId: 'U_SENDER',
+        sourceSlackMessageTs: '1700000000.000100',
+        sourceSlackPermalink: 'https://acme.slack.com/archives/C1/p1700000000000100',
+      }),
+      300000,
+    );
+  });
+
+  it('ignores non-mentioned channel messages because routing rules are not known yet', async () => {
+    await capture()({
+      event: { type: 'message', user: 'U1', channel: 'C1', ts: '1.0', text: 'hello team' },
+      body: { event_id: 'Ev2' },
+      context: { teamId: 'T1' },
+      client: { chat: { getPermalink: jest.fn() } },
+    });
+    expect(queueService.createItem).not.toHaveBeenCalled();
+    expect(queueService.createOrUpdateSlackAttention).not.toHaveBeenCalled();
   });
 });
 
@@ -467,18 +541,23 @@ describe('registerActions', () => {
     expect(publish).toHaveBeenCalledTimes(1);
   });
 
-  it('acks the Open chat URL button without changing queue state', async () => {
+  it('clears the Slack attention group when Open chat is clicked', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.completeSlackAttentionGroup).mockResolvedValue(2);
+    mock(queueService.getActiveQueue).mockResolvedValue([]);
     const ack = jest.fn();
+    const publish = jest.fn();
     await capture().get(SLACK_ACTION_IDS.itemOpenChat)!({
       ack,
       body: homeBody,
       action: { value: 'MQ-1' },
-      client: { views: { publish: jest.fn() } },
+      client: { views: { publish } },
       context: { teamId: 'T1' },
       respond: jest.fn(),
     });
     expect(ack).toHaveBeenCalledTimes(1);
-    expect(queueService.changeStatus).not.toHaveBeenCalled();
+    expect(queueService.completeSlackAttentionGroup).toHaveBeenCalledWith(ctx, 'MQ-1');
+    expect(publish).toHaveBeenCalledTimes(1);
   });
 
   it('applies an overflow action from its encoded value', async () => {

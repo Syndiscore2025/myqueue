@@ -6,6 +6,7 @@ import {
   InvalidQueueStatusTransitionError,
   QueueEventType,
   QueuePriority,
+  QueueSourceType,
   QueueStatus,
 } from '../../src/domain/queue';
 import type { QueueItemRepository } from '../../src/infrastructure/repositories/queue-item-repository';
@@ -91,6 +92,7 @@ function makeItem(over: Partial<QueueItem> = {}): QueueItem {
     sourceSlackMessageTs: null,
     sourceSlackThreadTs: null,
     sourceSlackPermalink: null,
+    sourceSlackMessageCount: 1,
     title: 'Title',
     summary: null,
     status: QueueStatus.New,
@@ -174,6 +176,74 @@ describe('QueueService.createItem', () => {
 
     expect(m.items.create.mock.calls[0]![0].ownerWorkspaceUserId).toBe('u2');
     expect(m.items.create.mock.calls[0]![0].creatorWorkspaceUserId).toBe('u1');
+  });
+});
+
+describe('QueueService.createOrUpdateSlackAttention', () => {
+  const input = {
+    title: 'Slack attention',
+    ownerWorkspaceUserId: 'owner',
+    priority: QueuePriority.Yellow,
+    sourceType: QueueSourceType.SLACK_MESSAGE,
+    sourceSlackChannelId: 'C1',
+    sourceSlackUserId: 'U1',
+    sourceSlackMessageTs: '1700000000.000100',
+    sourceSlackThreadTs: '1700000000.000000',
+    sourceSlackPermalink: 'https://acme.slack.com/archives/C1/p1700000000000100',
+  };
+
+  it('increments an existing pointer inside the burst window instead of creating another', async () => {
+    const { svc, m } = build();
+    const existing = makeItem({
+      id: 'existing',
+      ownerWorkspaceUserId: 'owner',
+      sourceType: QueueSourceType.SLACK_MESSAGE,
+      sourceSlackChannelId: 'C1',
+      sourceSlackUserId: 'U1',
+      sourceSlackThreadTs: '1700000000.000000',
+      sourceSlackMessageCount: 2,
+      updatedAt: new Date('2026-01-01T00:04:00Z'),
+    });
+    const updated = makeItem({ ...existing, sourceSlackMessageCount: 3 });
+    m.items.listByOwner.mockResolvedValue([existing]);
+    m.items.updateScoped.mockResolvedValue(updated);
+
+    await svc.createOrUpdateSlackAttention(
+      ctx,
+      input,
+      5 * 60_000,
+      new Date('2026-01-01T00:05:00Z'),
+    );
+
+    expect(m.items.create).not.toHaveBeenCalled();
+    expect(m.items.updateScoped).toHaveBeenCalledWith(
+      'w1',
+      'existing',
+      expect.objectContaining({ sourceSlackMessageCount: 3 }),
+    );
+  });
+
+  it('creates a new pointer after the burst window expires', async () => {
+    const { svc, m } = build();
+    const stale = makeItem({
+      ownerWorkspaceUserId: 'owner',
+      sourceType: QueueSourceType.SLACK_MESSAGE,
+      sourceSlackChannelId: 'C1',
+      sourceSlackUserId: 'U1',
+      sourceSlackThreadTs: '1700000000.000000',
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    m.items.listByOwner.mockResolvedValue([stale]);
+    m.items.create.mockResolvedValue(makeItem());
+
+    await svc.createOrUpdateSlackAttention(
+      ctx,
+      input,
+      5 * 60_000,
+      new Date('2026-01-01T00:06:00Z'),
+    );
+
+    expect(m.items.create).toHaveBeenCalledTimes(1);
   });
 });
 

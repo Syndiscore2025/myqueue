@@ -49,7 +49,7 @@ describe('itemActions', () => {
     const block = itemActions(makeItem({ status: QueueStatus.New }));
     expect(block).not.toBeNull();
     const ids = block!.elements.map((e) => e.type);
-    expect(ids).toEqual(['button', 'button', 'button', 'button', 'overflow']);
+    expect(ids).toEqual(['button', 'button', 'button', 'button', 'button', 'overflow']);
     expect(block!.block_id).toBe('mq_item:MQ-000001');
   });
 
@@ -109,12 +109,15 @@ describe('itemBlocks', () => {
         sourceSlackPermalink: 'https://acme.slack.com/archives/C123ABC/p1700000000000100',
       }),
     );
-    expect(JSON.stringify(blocks[0])).toContain(
-      '<https://acme.slack.com/archives/C123ABC/p1700000000000100|Title>',
-    );
+    expect(JSON.stringify(blocks[0])).toContain('<@U123ABC>');
     expect(JSON.stringify(blocks[1])).toContain('<#C123ABC>');
     expect(JSON.stringify(blocks[1])).toContain('<@U123ABC>');
     expect(blocks.map((b) => b.type)).toEqual(['section', 'context', 'actions']);
+  });
+
+  it('shows a burst message count without showing message text', () => {
+    const blocks = itemBlocks(makeItem({ sourceSlackMessageCount: 3 }));
+    expect(JSON.stringify(blocks[1])).toContain('3 messages');
   });
 
   it('does not render arbitrary external URLs as Open chat buttons', () => {

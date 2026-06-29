@@ -84,6 +84,13 @@ describe('environment validation', () => {
       'im:write',
       'users:read',
       'team:read',
+      'channels:read',
+      'channels:history',
+      'groups:read',
+      'groups:history',
+      'mpim:read',
+      'mpim:history',
+      'im:history',
     ]);
     expect(env.SLACK_USER_SCOPES).toEqual([]);
   });

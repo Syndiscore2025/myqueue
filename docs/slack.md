@@ -31,16 +31,21 @@ Store it as `SLACK_STATE_SECRET`.
 ## 2. Scopes
 
 Scopes are requested at install time and configured via env (CSV), so they can
-change without code edits. The defaults are the minimal, Marketplace-friendly
-set:
+change without code edits. The defaults support App Home, commands,
+notifications, and automatic attention-pointer capture from Slack conversations
+the app is allowed to observe:
 
 ```
-SLACK_BOT_SCOPES=commands,chat:write,im:write,users:read,team:read
+SLACK_BOT_SCOPES=commands,chat:write,im:write,users:read,team:read,channels:read,channels:history,groups:read,groups:history,mpim:read,mpim:history,im:history
 SLACK_USER_SCOPES=
 ```
 
 `im:write` is added in Phase 5 so the notifier can open a DM channel
 (`conversations.open`) before posting; `chat:write` covers the message itself.
+The `*:history` scopes let Slack deliver Events API message notifications where
+the app has conversation visibility. MyQueue uses those events to store only
+attention metadata — sender/channel ids, timestamp, priority, and a Slack link —
+never the message body.
 
 Set the **same** bot scopes under **OAuth & Permissions → Scopes → Bot Token
 Scopes** in the portal so the consent screen matches.
@@ -63,6 +68,8 @@ Configure them in the portal:
 - **Event Subscriptions → Request URL**: set
   `https://YOUR_DOMAIN/slack/events`. Slack sends a one-time `url_verification`
   challenge, which the receiver answers automatically.
+- **Subscribe to bot events**: add `app_home_opened`, `message.channels`,
+  `message.groups`, `message.mpim`, and `message.im`.
 
 > For local development, expose your machine with a tunnel (e.g. ngrok) and use
 > the HTTPS tunnel URL as `APP_BASE_URL`.
@@ -124,6 +131,11 @@ The Slack-compliant version of the experience is therefore:
   controls without turning MyQueue into a conversation channel.
 - Every Slack-originated item links back to the original Slack place when the
   user needs to reply.
+- Automatic Slack message capture creates attention pointers only: who/where,
+  priority, status, timestamp, and Open chat. It does not copy message text.
+- Repeated messages from the same sender in the same observable Slack
+  conversation/thread within five minutes update one pointer's message count;
+  they do not create multiple queue rows.
 
 ### Queue ordering and lifecycle behavior
 
@@ -179,6 +191,12 @@ channel, and use Slack app redirect/deep links where a channel or DM id is known
 The rule is: MyQueue shows the ranked work list, but replies happen in the
 original Slack conversation.
 
+Opening a Slack-sourced pointer is treated as handling that attention group: all
+active pointers for the same owner/sender/channel/thread are marked done so they
+leave the active queue. If the issue is resolved elsewhere (for example by a call
+to a manager or CEO), the recipient can also use **Resolved** to remove the item
+from their active queue without opening the chat.
+
 Surfaces:
 
 | Surface             | Trigger                          | What it does                                              |
@@ -186,6 +204,7 @@ Surfaces:
 | App Home dashboard  | `app_home_opened` event          | Publishes the user's ranked queue with priority/status filters. |
 | `/myqueue` command  | Slash command                    | Navigates the queue/priority/status views from any channel.     |
 | `/myqueue token`    | Slash command                    | Mints a personal HS256 API bearer token (Phase 7), shown ephemerally. |
+| Automatic capture   | Slack message events             | Creates name-only attention pointers for observable messages, currently direct mentions until admin routing rules exist. |
 | Add to MyQueue      | Message shortcut (`message_action`) | Captures a privacy-safe reference to the message as a `SLACK_MESSAGE` item. |
 | Item actions        | Block Kit buttons / overflow     | Start, Follow Up, Waiting, Snooze, Complete, Archive, Refresh.  |
 
