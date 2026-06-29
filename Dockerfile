@@ -45,12 +45,13 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
-# Install production deps only; skip lifecycle scripts (no prisma CLI here).
-RUN npm ci --omit=dev --ignore-scripts \
+# Install production deps with lifecycle scripts enabled so Prisma downloads its
+# engines and generates the client. `prisma` is a production dependency, so the
+# CLI is present for `prisma migrate deploy` as the platform's pre-deploy step.
+RUN npm ci --omit=dev \
   && npm cache clean --force
 
-# Bring in the generated Prisma client and compiled output from the build stage.
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+# Bring in the compiled output from the build stage.
 COPY --from=build /app/dist ./dist
 
 # Run as the built-in unprivileged user.

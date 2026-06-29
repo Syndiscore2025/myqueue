@@ -22,6 +22,65 @@ procedure and the full configuration reference.
 - Migrations applied with the same commit before app start (the `migrate` image
   / `prisma migrate deploy`).
 
+## Environment variables (production)
+
+Every variable is validated at boot by the Zod schema in `src/config/env.ts`. **If
+anything required is missing or malformed, the process exits immediately** with a
+list of problems — a bad config fails the deploy at the `/ready` gate rather than
+booting in a broken state. Set these as **App-level secrets** (App Platform) or in
+the host `.env` / Docker secrets (Droplet). Never commit real values.
+
+### Required in production — the app will not boot without these
+
+| Variable             | Example / format                                       | Notes                                                                                                  |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `NODE_ENV`           | `production`                                           | Enables production behavior and disables the dev header-auth fallback.                                  |
+| `APP_BASE_URL`       | `https://app.yourdomain.com`                          | Public HTTPS URL. Must be a valid URL and exactly match the Slack OAuth redirect host.                  |
+| `DATABASE_URL`       | `postgresql://USER:PASS@HOST:25060/db?sslmode=require` | DO Managed PostgreSQL connection string; include `sslmode=require`.                                     |
+| `REDIS_URL`          | `rediss://default:PASS@HOST:25061`                    | DO Managed Redis/Valkey. Use `rediss://` (TLS) for managed instances.                                   |
+| `ENCRYPTION_KEY`     | 64 hex chars (32 bytes)                                | AES-256-GCM key for token-at-rest encryption. Rotating it invalidates stored Slack tokens.             |
+| `AUTH_TOKEN_SECRET`  | ≥ 32 chars                                             | HS256 signing secret for API bearer tokens. **Mandatory in production** (the dev fallback is disabled). |
+| `SLACK_CLIENT_ID`    | from Slack app                                         | Slack → Basic Information → App Credentials.                                                            |
+| `SLACK_CLIENT_SECRET`| from Slack app                                         | Treat as a secret.                                                                                      |
+| `SLACK_SIGNING_SECRET`| from Slack app                                        | Verifies inbound Slack request signatures.                                                              |
+| `SLACK_STATE_SECRET` | ≥ 32 chars                                             | Signs the OAuth `state` parameter against CSRF.                                                         |
+
+### Strongly recommended in production (defaults are dev-oriented)
+
+| Variable       | Set to                       | Notes                                                                                          |
+| -------------- | ---------------------------- | ---------------------------------------------------------------------------------------------- |
+| `CORS_ORIGINS` | `https://app.yourdomain.com` | Comma-separated. **Defaults to `*`** and is not enforced-against — set explicit origins.        |
+| `TRUST_PROXY`  | `true`                       | Required behind App Platform / a reverse proxy / LB so client IPs and rate limiting work.       |
+| `PORT`         | `3000`                       | API listen port. App Platform injects its own `PORT`; leave the default and bind to it.         |
+| `LOG_LEVEL`    | `info`                       | One of `fatal`…`trace` \| `silent`.                                                             |
+
+### Optional tunables (safe defaults — override only if needed)
+
+`RATE_LIMIT_MAX` (100), `RATE_LIMIT_WINDOW_MS` (60000), `AUTH_TOKEN_TTL_SECONDS`
+(3600), and the queue knobs `QUEUE_LOCK_MINUTES`, `QUEUE_HEARTBEAT_SECONDS`,
+`QUEUE_RECOVERY_BATCH_SIZE`, `QUEUE_MAX_RETRIES`, `QUEUE_RECOVERY_INTERVAL`,
+`QUEUE_SCHEDULER_INTERVAL_SECONDS`, `QUEUE_ACTIVATION_BATCH_SIZE`,
+`QUEUE_RECURRENCE_BATCH_SIZE`, `QUEUE_FOLLOW_UP_INTERVAL_SECONDS`,
+`QUEUE_FOLLOW_UP_BATCH_SIZE`, `QUEUE_DIGEST_INTERVAL_SECONDS`. Slack scope/socket
+overrides: `SLACK_BOT_SCOPES` (default
+`commands,chat:write,im:write,users:read,team:read`), `SLACK_USER_SCOPES`,
+`SLACK_APP_TOKEN` (Socket Mode only — leave blank for HTTP).
+
+### Billing (only if Stripe billing is enabled)
+
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are both required to turn billing
+on; `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`, `STRIPE_CHECKOUT_SUCCESS_URL`,
+`STRIPE_CHECKOUT_CANCEL_URL`, and `STRIPE_PORTAL_RETURN_URL` complete the surface.
+Leave all blank to run with billing disabled (the surface is simply not mounted).
+
+### Generate the secrets
+
+```bash
+# Run three times — once each for ENCRYPTION_KEY, AUTH_TOKEN_SECRET, SLACK_STATE_SECRET.
+# Generate them INDEPENDENTLY; never reuse one value for multiple secrets.
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
 ## Option A — App Platform (managed)
 
 Recommended when you want DigitalOcean to manage TLS, scaling, and the host.
@@ -44,6 +103,74 @@ Recommended when you want DigitalOcean to manage TLS, scaling, and the host.
    Redis-backed, so it is shared across instances). The Worker loops are
    overlap-guarded; **[DECISION]** keep the worker at a single instance unless you
    have validated multi-instance sweep behaviour.
+
+### Declarative app spec (`doctl`)
+
+You can define the whole app — web service, worker, pre-deploy migration job, and
+attached managed databases — in one spec and apply it with `doctl`. Authenticate
+first with `doctl auth init` (paste your DO token at the prompt; it never enters a
+command argument). Sketch of `app.yaml`:
+
+```yaml
+name: myqueue
+region: nyc
+databases:
+  - { name: db, engine: PG, production: true }
+  - { name: cache, engine: REDIS, production: true }
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    image: { registry_type: DOCR, repository: myqueue, tag: <sha> }
+    run_command: npx prisma migrate deploy
+    envs:
+      - { key: DATABASE_URL, value: ${db.DATABASE_URL} }
+services:
+  - name: web
+    image: { registry_type: DOCR, repository: myqueue, tag: <sha> }
+    run_command: node dist/server.js
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: basic-xs
+    health_check: { http_path: /ready }
+    envs:
+      - { key: NODE_ENV, value: production }
+      - { key: APP_BASE_URL, value: https://app.yourdomain.com }
+      - { key: CORS_ORIGINS, value: https://app.yourdomain.com }
+      - { key: TRUST_PROXY, value: "true" }
+      - { key: DATABASE_URL, value: ${db.DATABASE_URL} }
+      - { key: REDIS_URL, value: ${cache.DATABASE_URL} }
+      - { key: ENCRYPTION_KEY, type: SECRET }
+      - { key: AUTH_TOKEN_SECRET, type: SECRET }
+      - { key: SLACK_CLIENT_ID, type: SECRET }
+      - { key: SLACK_CLIENT_SECRET, type: SECRET }
+      - { key: SLACK_SIGNING_SECRET, type: SECRET }
+      - { key: SLACK_STATE_SECRET, type: SECRET }
+workers:
+  - name: worker
+    image: { registry_type: DOCR, repository: myqueue, tag: <sha> }
+    run_command: node dist/workers/index.js
+    instance_count: 1
+    instance_size_slug: basic-xs
+    envs: # same DATABASE_URL/REDIS_URL bindings + the same SECRET keys as `web`
+      - { key: NODE_ENV, value: production }
+      - { key: DATABASE_URL, value: ${db.DATABASE_URL} }
+      - { key: REDIS_URL, value: ${cache.DATABASE_URL} }
+```
+
+```bash
+doctl apps create --spec app.yaml          # first deploy
+doctl apps update <app-id> --spec app.yaml # subsequent deploys (tag bump)
+```
+
+- **Bound datastore vars:** attaching the managed `db`/`cache` lets App Platform
+  inject `${db.DATABASE_URL}` and `${cache.DATABASE_URL}`, so you never hardcode
+  connection strings.
+- **Secret values:** set each `type: SECRET` key's value in the DO console (or an
+  **untracked** copy of the spec). Never commit real secrets — once applied, DO
+  stores them encrypted and the spec shows `EV[...]` ciphertext.
+- **Env-var reference:** see the
+  [Environment variables](#environment-variables-production) section above for what
+  each key means and which are required.
 
 ## Option B — Droplet + Docker Compose
 
