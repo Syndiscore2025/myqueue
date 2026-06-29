@@ -24,6 +24,9 @@ export interface QueueItemView {
   status: QueueStatus;
   snoozedUntil?: Date | null;
   followUpDueAt?: Date | null;
+  sourceSlackChannelId?: string | null;
+  sourceSlackUserId?: string | null;
+  sourceSlackPermalink?: string | null;
 }
 
 /** Coloured dot for each priority, used in list lines. */
@@ -51,6 +54,37 @@ export function escapeMrkdwn(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Keep untrusted labels from breaking Slack's `<url|label>` link syntax. */
+function escapeLinkLabel(text: string): string {
+  return escapeMrkdwn(text).replace(/\|/g, '¦');
+}
+
+/** Only render Slack entity links for ids that look like native Slack ids. */
+function slackChannelLink(channelId: string | null | undefined): string | null {
+  return channelId !== null && channelId !== undefined && /^[A-Z0-9]+$/.test(channelId)
+    ? `<#${channelId}>`
+    : null;
+}
+
+function slackUserLink(userId: string | null | undefined): string | null {
+  return userId !== null && userId !== undefined && /^[A-Z0-9]+$/.test(userId)
+    ? `<@${userId}>`
+    : null;
+}
+
+/** URL buttons should only point back into Slack, never arbitrary destinations. */
+function safeSlackPermalink(url: string | null | undefined): string | null {
+  if (url === null || url === undefined) {
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && parsed.hostname.endsWith('.slack.com') ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export function header(text: string): HeaderBlock {
   return { type: 'header', text: { type: 'plain_text', text, emoji: true } };
 }
@@ -75,6 +109,27 @@ function button(actionId: string, text: string, permanentQueueId: string): Butto
     text: { type: 'plain_text', text, emoji: true },
     value: permanentQueueId,
   };
+}
+
+function openChatButton(item: QueueItemView): Button | null {
+  const permalink = safeSlackPermalink(item.sourceSlackPermalink);
+  if (permalink === null) {
+    return null;
+  }
+  return {
+    type: 'button',
+    action_id: SLACK_ACTION_IDS.itemOpenChat,
+    text: { type: 'plain_text', text: 'Open chat', emoji: true },
+    url: permalink,
+    value: item.permanentQueueId,
+  };
+}
+
+function sourceAction(item: QueueItemView): ActionsBlock | null {
+  const open = openChatButton(item);
+  return open === null
+    ? null
+    : { type: 'actions', block_id: `mq_source:${item.permanentQueueId}`, elements: [open] };
 }
 
 /** Primary status buttons, in display order, gated by the lifecycle machine. */
@@ -128,11 +183,22 @@ export function itemBlocks(
 ): KnownBlock[] {
   const title = escapeMrkdwn(item.title);
   const summary = item.summary === null ? '' : `\n${escapeMrkdwn(item.summary)}`;
-  const meta = `\`${item.permanentQueueId}\` · ${PRIORITY_EMOJI[item.priority]} ${item.priority} · ${STATUS_LABEL[item.status]}`;
+  const permalink = safeSlackPermalink(item.sourceSlackPermalink);
+  const titleText =
+    permalink === null ? `*${title}*` : `*<${permalink}|${escapeLinkLabel(item.title)}>*`;
+  const user = slackUserLink(item.sourceSlackUserId);
+  const source = slackChannelLink(item.sourceSlackChannelId);
+  const sourceParts = [user, source].filter((part): part is string => part !== null);
+  const sourceMeta = sourceParts.length === 0 ? '' : ` · Source ${sourceParts.join(' in ')}`;
+  const meta = `\`${item.permanentQueueId}\` · ${PRIORITY_EMOJI[item.priority]} ${item.priority} · ${STATUS_LABEL[item.status]}${sourceMeta}`;
   const blocks: KnownBlock[] = [
-    section(`${PRIORITY_EMOJI[item.priority]} *${title}*${summary}`),
+    section(`${PRIORITY_EMOJI[item.priority]} ${titleText}${summary}`),
     context(meta),
   ];
+  const openAction = sourceAction(item);
+  if (openAction !== null) {
+    blocks.push(openAction);
+  }
   if (opts.withActions === true) {
     const actions = itemActions(item);
     if (actions !== null) {

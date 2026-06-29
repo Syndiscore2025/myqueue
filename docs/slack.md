@@ -105,6 +105,80 @@ interface adapters (`src/interfaces/slack`) that resolve a verified Slack
 identity to a tenant-scoped `QueueContext` and delegate to the existing queue
 application services; no business logic lives in the Slack layer.
 
+### Product model: one personal command center
+
+MyQueue is a private, per-user command center inside Slack. Users should be able
+to keep the MyQueue App Home open all day and work from one ranked queue instead
+of hunting through channels, DMs, threads, and reminders. MyQueue is not a shared
+chat room: conversations stay in the original Slack DM/channel/thread, while
+MyQueue tracks attention, priority, lifecycle state, and the next best item to
+work.
+
+Slack apps cannot decorate or reorder Slack's native left sidebar, add colored
+queue indicators next to DM names, or inject controls into the message composer.
+The Slack-compliant version of the experience is therefore:
+
+- MyQueue App Home is the primary working surface.
+- Proactive DMs/reminders bring the user back when important queue state changes.
+- Slash commands, message shortcuts, reactions, and App Home buttons provide fast
+  controls without turning MyQueue into a conversation channel.
+- Every Slack-originated item links back to the original Slack place when the
+  user needs to reply.
+
+### Queue ordering and lifecycle behavior
+
+Queue order is dynamic. If a user works an item out of order, MyQueue should mark
+that item with the appropriate lifecycle state (`Working`, `Waiting`, `Follow
+Up`, `Snoozed`, `Done`, etc.) and recompute the ranked queue so the next best
+item moves into the highest available position. Slot #1 may represent the current
+active conversation/call; priority overrides normally jump to the highest waiting
+slot beneath that active item.
+
+Priority and status are separate concepts:
+
+- **Status** describes workflow state: new, working, waiting, follow-up,
+  snoozed, done, archived.
+- **Priority** describes attention level: urgent/red, important/yellow,
+  normal/green, low/FYI.
+
+Role-based priority overrides should be modeled as ranking rules, not as chat
+behavior:
+
+| Sender/context | Queue behavior |
+| -------------- | -------------- |
+| CEO or executive | Jump to the highest waiting slot, typically #2. |
+| Sales manager | Jump to the highest waiting slot for users on their team. |
+| Team lead | Jump above normal team items, but not above sales manager/executive items. |
+| Normal direct message | Rank by normal priority/order rules. |
+| Company-wide/lender/general channel message | Default to low/non-urgent unless directly assigned. |
+| Direct `@user` mention in a broad channel | Elevate to yellow/important. |
+
+### Marking urgency from normal Slack
+
+MyQueue cannot add a native urgency dropdown to Slack's message composer. The
+supported Slack-native controls are:
+
+- Message shortcut, e.g. **Add to MyQueue** / **Mark urgent**.
+- Emoji reactions where the app has event visibility, e.g. red/yellow/green.
+- Slash commands such as `/myqueue add` or `/myqueue urgent`.
+- App Home item actions: start, waiting, follow-up, snooze, complete, archive,
+  raise/lower priority, and open original.
+
+The sender can continue using normal Slack. The recipient uses MyQueue as the
+attention layer and jumps back to the real conversation only when needed.
+
+### Opening the original chat from MyQueue
+
+Every queue item created from Slack should expose an obvious **Open in Slack** /
+**Open chat** action. The preferred target is the original message permalink so
+the user lands in the exact DM/channel/thread that created the item. When a
+message permalink is not available, render Slack-native identifiers that Slack
+makes clickable, such as `<@USER_ID>` for a person or `<#CHANNEL_ID>` for a
+channel, and use Slack app redirect/deep links where a channel or DM id is known.
+
+The rule is: MyQueue shows the ranked work list, but replies happen in the
+original Slack conversation.
+
 Surfaces:
 
 | Surface             | Trigger                          | What it does                                              |

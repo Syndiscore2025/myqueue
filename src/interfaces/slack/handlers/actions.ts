@@ -131,6 +131,10 @@ export function registerActions(app: App): void {
   };
   app.action(SLACK_ACTION_IDS.selectView, navigate);
   app.action(SLACK_ACTION_IDS.refresh, navigate);
+  app.action(SLACK_ACTION_IDS.itemOpenChat, async ({ ack }: ActionArgs) => {
+    // URL buttons open Slack directly; Bolt still requires us to acknowledge the click.
+    await ack();
+  });
 
   for (const [actionId, itemAction] of Object.entries(ACTION_ID_TO_ITEM_ACTION)) {
     app.action(actionId, async ({ ack, body, client, context, respond, action }: ActionArgs) => {

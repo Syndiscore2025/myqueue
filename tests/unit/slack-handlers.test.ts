@@ -291,7 +291,7 @@ describe('registerShortcuts', () => {
     user: { id: 'U1' },
     channel: { id: 'C1', name: 'general' },
     team: { id: 'T1', domain: 'acme' },
-    message: { ts: '1700000000.000100', text: 'Ship the release' },
+    message: { ts: '1700000000.000100', user: 'U2', text: 'Ship the release' },
     ...over,
   });
 
@@ -312,6 +312,7 @@ describe('registerShortcuts', () => {
       summary?: unknown;
       title: string;
       sourceSlackChannelId: string;
+      sourceSlackUserId: string | null;
       sourceSlackMessageTs: string;
       sourceSlackThreadTs: string | null;
       sourceSlackPermalink: string;
@@ -321,6 +322,7 @@ describe('registerShortcuts', () => {
     expect(created.summary).toBeUndefined();
     expect(created.title).toBe('Slack message in #general');
     expect(created.sourceSlackChannelId).toBe('C1');
+    expect(created.sourceSlackUserId).toBe('U2');
     expect(created.sourceSlackMessageTs).toBe('1700000000.000100');
     expect(created.sourceSlackThreadTs).toBeNull();
     expect(created.sourceSlackPermalink).toBe(
@@ -463,6 +465,20 @@ describe('registerActions', () => {
     });
     expect(queueService.changeStatus).toHaveBeenCalledWith(ctx, 'MQ-1', QueueStatus.Working);
     expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('acks the Open chat URL button without changing queue state', async () => {
+    const ack = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.itemOpenChat)!({
+      ack,
+      body: homeBody,
+      action: { value: 'MQ-1' },
+      client: { views: { publish: jest.fn() } },
+      context: { teamId: 'T1' },
+      respond: jest.fn(),
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(queueService.changeStatus).not.toHaveBeenCalled();
   });
 
   it('applies an overflow action from its encoded value', async () => {

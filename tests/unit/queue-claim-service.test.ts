@@ -82,6 +82,7 @@ function makeItem(over: Partial<QueueItem> = {}): QueueItem {
     creatorWorkspaceUserId: 'u1',
     sourceType: 'MANUAL',
     sourceSlackChannelId: null,
+    sourceSlackUserId: null,
     sourceSlackMessageTs: null,
     sourceSlackThreadTs: null,
     sourceSlackPermalink: null,

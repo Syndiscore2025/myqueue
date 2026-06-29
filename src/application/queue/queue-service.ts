@@ -48,6 +48,7 @@ export interface CreateItemInput {
    * pointers (channel/message/thread ids and a permalink), never the message body.
    */
   sourceSlackChannelId?: string | null;
+  sourceSlackUserId?: string | null;
   sourceSlackMessageTs?: string | null;
   sourceSlackThreadTs?: string | null;
   sourceSlackPermalink?: string | null;
@@ -155,6 +156,7 @@ export class QueueService {
       priority,
       ...(input.sourceType === undefined ? {} : { sourceType: input.sourceType }),
       sourceSlackChannelId: input.sourceSlackChannelId ?? null,
+      sourceSlackUserId: input.sourceSlackUserId ?? null,
       sourceSlackMessageTs: input.sourceSlackMessageTs ?? null,
       sourceSlackThreadTs: input.sourceSlackThreadTs ?? null,
       sourceSlackPermalink: input.sourceSlackPermalink ?? null,

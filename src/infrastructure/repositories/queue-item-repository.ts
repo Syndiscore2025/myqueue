@@ -27,6 +27,7 @@ export interface CreateQueueItemInput {
   priority?: QueuePriority;
   sourceType?: QueueSourceType;
   sourceSlackChannelId?: string | null;
+  sourceSlackUserId?: string | null;
   sourceSlackMessageTs?: string | null;
   sourceSlackThreadTs?: string | null;
   sourceSlackPermalink?: string | null;
@@ -264,6 +265,7 @@ export class QueueItemRepository {
           priority: input.priority ?? QueuePriority.Green,
           sourceType: input.sourceType ?? QueueSourceType.MANUAL,
           sourceSlackChannelId: input.sourceSlackChannelId ?? null,
+          sourceSlackUserId: input.sourceSlackUserId ?? null,
           sourceSlackMessageTs: input.sourceSlackMessageTs ?? null,
           sourceSlackThreadTs: input.sourceSlackThreadTs ?? null,
           sourceSlackPermalink: input.sourceSlackPermalink ?? null,

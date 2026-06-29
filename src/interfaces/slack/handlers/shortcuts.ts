@@ -65,12 +65,14 @@ export async function handleAddMessage(
     const ctx = await resolveContext(context, shortcut.user.id);
     const channelId = shortcut.channel.id;
     const messageTs = shortcut.message_ts;
+    const sourceUserId = typeof shortcut.message.user === 'string' ? shortcut.message.user : null;
     const threadTs =
       typeof shortcut.message.thread_ts === 'string' ? shortcut.message.thread_ts : null;
     const item = await queueService.createItem(ctx, {
       title: buildMessageTitle(shortcut.channel.name),
       sourceType: QueueSourceType.SLACK_MESSAGE,
       sourceSlackChannelId: channelId,
+      sourceSlackUserId: sourceUserId,
       sourceSlackMessageTs: messageTs,
       sourceSlackThreadTs: threadTs,
       sourceSlackPermalink: buildMessagePermalink(shortcut.team?.domain, channelId, messageTs),

@@ -100,6 +100,27 @@ describe('itemBlocks', () => {
     const [sectionBlock] = itemBlocks(makeItem({ title: '<b>x</b>' }));
     expect(JSON.stringify(sectionBlock)).toContain('&lt;b&gt;x&lt;/b&gt;');
   });
+
+  it('links Slack-sourced items back to the original chat/message', () => {
+    const blocks = itemBlocks(
+      makeItem({
+        sourceSlackChannelId: 'C123ABC',
+        sourceSlackUserId: 'U123ABC',
+        sourceSlackPermalink: 'https://acme.slack.com/archives/C123ABC/p1700000000000100',
+      }),
+    );
+    expect(JSON.stringify(blocks[0])).toContain(
+      '<https://acme.slack.com/archives/C123ABC/p1700000000000100|Title>',
+    );
+    expect(JSON.stringify(blocks[1])).toContain('<#C123ABC>');
+    expect(JSON.stringify(blocks[1])).toContain('<@U123ABC>');
+    expect(blocks.map((b) => b.type)).toEqual(['section', 'context', 'actions']);
+  });
+
+  it('does not render arbitrary external URLs as Open chat buttons', () => {
+    const blocks = itemBlocks(makeItem({ sourceSlackPermalink: 'https://example.com/phish' }));
+    expect(blocks.map((b) => b.type)).toEqual(['section', 'context']);
+  });
 });
 
 describe('buildQueueBlocks', () => {

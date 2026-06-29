@@ -1,13 +1,13 @@
 # Slack App Setup Guide
 
-Two phases: **Phase 1** gets you the credentials you hand to me (do this now).
-**Phase 2** is done after the app is live on DigitalOcean (you'll have a real domain
-by then). You need the domain before you can verify URLs in Slack's portal, so we
-do it in this order on purpose.
+Two phases: **Phase 1** gets the Slack credentials and generated app secrets into
+Render. **Phase 2** wires Slack's portal URLs to the live production domain. You
+need the domain before Slack can verify event/interactivity URLs, so we do it in
+this order on purpose.
 
 ---
 
-## Phase 1 — Do this now (before deploy)
+## Phase 1 — Do this before deploy
 
 ### 1. Create the Slack app
 
@@ -31,8 +31,8 @@ Go to **Basic Information** in the left sidebar. Scroll to **App Credentials**.
 | **Client Secret** (click Show) | `SLACK_CLIENT_SECRET` |
 | **Signing Secret** (click Show) | `SLACK_SIGNING_SECRET` |
 
-Copy all three. **Do not share them here in chat** — you'll enter them directly
-into the DigitalOcean console as secret env vars.
+Copy all three. **Do not share them in chat** — enter them directly into Render
+as secret environment variables on the `myqueue-api` service.
 
 ---
 
@@ -54,39 +54,46 @@ require Slack review.
 
 ---
 
-### 4. Generate your own secret (not from Slack)
+### 4. Generate your own secrets (not from Slack)
 
-This one is random — you generate it yourself. Run this command **once** in your
-terminal and save the output somewhere safe (password manager):
+These are random — you generate them yourself. Run each command **once** in your
+terminal and save the outputs somewhere safe (password manager):
 
 ```bash
+# SLACK_STATE_SECRET — protects OAuth state
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# ENCRYPTION_KEY — encrypts Slack tokens at rest; permanent after installs exist
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# AUTH_TOKEN_SECRET — signs personal API bearer tokens
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
-This is your `SLACK_STATE_SECRET`. Keep it — you'll paste it into DO alongside
-the three Slack credentials.
+Keep these values — you'll paste them into Render alongside the three Slack
+credentials. Back up `ENCRYPTION_KEY`; changing it after installs exist makes
+stored Slack tokens undecryptable.
 
 ---
 
-## ✋ Stop here — give me the four values
+## ✋ Stop here — enter the values in Render
 
-Once you have the three Slack credentials from Basic Information and your generated
-`SLACK_STATE_SECRET`, tell me and I'll continue provisioning the DigitalOcean
-infrastructure. **Enter them directly into the DO console** (not here).
+Once you have the three Slack credentials from Basic Information and the three
+generated secrets, enter them directly into Render. Do not paste secrets in chat
+or screenshots.
 
 ---
 
-## Phase 2 — Do this after the app is live on DigitalOcean
+## Phase 2 — Do this after the app is live on Render
 
-You will have a public URL by this point (e.g. `https://app.yourdomain.com` or
-`https://myqueue-xxxxx.ondigitalocean.app`). Replace `YOUR_DOMAIN` below with it.
+Production URL: `https://app.myqueue.syndiscore.com`.
 
 ### 5. OAuth redirect URL
 
 **OAuth & Permissions → Redirect URLs → Add:**
 
 ```
-https://YOUR_DOMAIN/slack/oauth_redirect
+https://app.myqueue.syndiscore.com/slack/oauth_redirect
 ```
 
 ### 6. Slash command
@@ -96,7 +103,7 @@ https://YOUR_DOMAIN/slack/oauth_redirect
 | Field | Value |
 | ------------------- | ---------------------------------- |
 | Command | `/myqueue` |
-| Request URL | `https://YOUR_DOMAIN/slack/events` |
+| Request URL | `https://app.myqueue.syndiscore.com/slack/events` |
 | Short Description | `Manage your MyQueue` |
 | Usage Hint | `[view\|add\|help]` |
 
@@ -104,7 +111,7 @@ https://YOUR_DOMAIN/slack/oauth_redirect
 
 **Interactivity & Shortcuts → turn Interactivity ON:**
 
-- **Request URL:** `https://YOUR_DOMAIN/slack/events`
+- **Request URL:** `https://app.myqueue.syndiscore.com/slack/events`
 
 Then under **Shortcuts → Create New Shortcut → On messages:**
 
@@ -118,7 +125,7 @@ Then under **Shortcuts → Create New Shortcut → On messages:**
 
 **Event Subscriptions → turn Events ON:**
 
-- **Request URL:** `https://YOUR_DOMAIN/slack/events`
+- **Request URL:** `https://app.myqueue.syndiscore.com/slack/events`
   (Slack sends a one-time challenge — the app answers it automatically ✓)
 
 Under **Subscribe to bot events → Add Bot User Event:**
@@ -135,12 +142,12 @@ Leave Messages Tab off.
 ### 10. Install the app
 
 Go to **OAuth & Permissions → Install to Workspace** (or direct your users to
-`https://YOUR_DOMAIN/slack/install`). This is what persists the bot token into
-your database — it must be done once per workspace.
+`https://app.myqueue.syndiscore.com/slack/install`). This is what persists the
+bot token into your database — it must be done once per workspace.
 
 ---
 
-## Summary of what I need from you
+## Summary of production secrets
 
 | Value | Where you get it | When |
 | --------------------- | ------------------------------- | ------- |
@@ -148,6 +155,8 @@ your database — it must be done once per workspace.
 | `SLACK_CLIENT_SECRET` | Basic Information → App Credentials | Phase 1 |
 | `SLACK_SIGNING_SECRET` | Basic Information → App Credentials | Phase 1 |
 | `SLACK_STATE_SECRET` | You generate with `node -e` above | Phase 1 |
+| `ENCRYPTION_KEY` | You generate with `node -e` above | Phase 1 |
+| `AUTH_TOKEN_SECRET` | You generate with `node -e` above | Phase 1 |
 
-Enter each as a **Secret** env var in the DigitalOcean App Platform console
-(Settings → App-level env vars). Never paste them here.
+Enter each as a secret env var in Render on `myqueue-api` → **Environment**.
+Never paste secret values in chat.
