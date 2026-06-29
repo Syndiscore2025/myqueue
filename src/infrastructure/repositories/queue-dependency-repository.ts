@@ -1,4 +1,6 @@
 import type { PrismaClient, QueueDependency } from '@prisma/client';
+import { NotFoundError } from '../../domain/errors';
+import { DependencyCycleError } from '../../domain/queue';
 import { getPrisma } from '../database/prisma';
 
 export interface AddDependencyEdgeInput {
@@ -43,8 +45,9 @@ export class QueueDependencyRepository {
       }),
     ]);
     if (!dependent || !upstream) {
-      throw new Error('One or both queue items not found in workspace');
+      throw new NotFoundError('One or both queue items not found in workspace');
     }
+    await this.assertNoCycle(input, dependent.id, upstream.id);
     return this.prisma.queueDependency.create({
       data: {
         workspaceId: input.workspaceId,
@@ -53,6 +56,43 @@ export class QueueDependencyRepository {
         dependencyType: (input.dependencyType ?? 'COMPLETE_REQUIRED') as never,
       },
     });
+  }
+
+  /**
+   * Reject an edge "dependent depends on upstream" that would introduce a cycle.
+   * A self-dependency is an immediate cycle. Otherwise the new edge closes a loop
+   * iff `upstream` already (transitively) depends on `dependent`, so we walk the
+   * existing depends-on graph from `upstream` and fail if `dependent` is reached.
+   * All reads are workspace-scoped; the `visited` set bounds the traversal and is
+   * defensive against any pre-existing cycle.
+   */
+  private async assertNoCycle(
+    input: AddDependencyEdgeInput,
+    dependentId: string,
+    upstreamId: string,
+  ): Promise<void> {
+    const fail = (): never => {
+      throw new DependencyCycleError(input.permanentQueueId, input.dependsOnPermanentQueueId);
+    };
+    if (dependentId === upstreamId) fail();
+
+    const visited = new Set<string>([upstreamId]);
+    let frontier = [upstreamId];
+    while (frontier.length > 0) {
+      const edges = await this.prisma.queueDependency.findMany({
+        where: { workspaceId: input.workspaceId, queueItemId: { in: frontier } },
+        select: { dependsOnQueueItemId: true },
+      });
+      const next: string[] = [];
+      for (const { dependsOnQueueItemId } of edges) {
+        if (dependsOnQueueItemId === dependentId) fail();
+        if (!visited.has(dependsOnQueueItemId)) {
+          visited.add(dependsOnQueueItemId);
+          next.push(dependsOnQueueItemId);
+        }
+      }
+      frontier = next;
+    }
   }
 
   async listForItem(workspaceId: string, permanentQueueId: string): Promise<QueueDependency[]> {

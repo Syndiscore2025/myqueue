@@ -505,11 +505,14 @@ These are the main items worth addressing before public production launch:
    and `testing` were refreshed with the Phase 3B/3C APIs and the CI gate;
    operational guidance now lives in `docs/deployment.md` (Phase 7 Slice 10,
    `d4dfa28`).
-7. ⚠️ **Circular dependency protection.** _Still open (only open engineering
-   item)._ `QueueDependencyRepository.addEdge()` validates that both items exist in
-   the workspace but performs **no cycle detection**, and tests cover dependency
-   _resolution_ (Done/DeadLetter cascade) rather than cycle _rejection_. Add cycle
-   detection plus tests before exposing the dependency APIs broadly.
+7. ✅ ~~**Circular dependency protection.**~~ _Addressed in Phase 8._
+   `QueueDependencyRepository.addEdge()` now rejects self-dependencies and any edge
+   that would close a cycle — it walks the existing workspace-scoped depends-on
+   graph from the upstream item and throws `DependencyCycleError` (409,
+   `DEPENDENCY_CYCLE`) if the dependent is reachable. Missing items now raise a
+   proper `NotFoundError` (404). Covered by unit tests in
+   `tests/unit/repositories.test.ts` (happy path, self-dependency, direct cycle,
+   transitive multi-hop cycle, not-found).
 8. ✅ ~~**Rate-limit behavior under concurrency.**~~ _Addressed in Phase 7 Slice 7
    (`bfa1aa4`)._ A concurrent integration test proves a full bucket gates parallel
    claims and reopens once capacity frees.
