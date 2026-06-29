@@ -422,37 +422,59 @@ targets build clean.
 9. ✅ ~~**Docker optimization.**~~ Done (`73537ec`).
 10. ✅ ~~**Deployment guides & rollback procedures.**~~ Done (`d4dfa28`).
 
-**Phase 7 is complete.** Next is Phase 8 (Marketplace Readiness).
+**Phase 7 is complete.** Phase 8 (Marketplace Readiness) is the documentation
+and launch-readiness phase — branch `feat/phase-8-marketplace-readiness`, stacked
+on Phase 7.
 
-### Phase 8 — Marketplace Readiness
+### Phase 8 — Marketplace Readiness 🔄 In progress (docs complete)
 
 **Goal:** Be ready to ship.
 
-Deliverables:
+All deliverables are grounded in the codebase; items needing business/legal input
+are flagged inside each doc with `[BUSINESS]` / `[COUNSEL]` placeholders.
 
-- Slack Marketplace checklist.
-- Privacy policy checklist.
-- Terms of service checklist.
-- OAuth review.
-- Slack scope review.
-- Branding assets checklist.
-- README updates.
-- Architecture docs.
-- Installation docs.
-- Admin guide.
-- User guide.
-- Release checklist.
-- comprehensive MyQueue report.md
-- Digital Ocean Deployment Guide.md - Webapp or droplet?
-- API documentation review.
-- Security audit report.
-- Performance testing results.
-- Backup and recovery plan documentation.
-- Monitoring and alerting setup guide.
-- Final legal compliance check.
-- Disaster recovery plan.
-- Accessibility compliance audit.
-- Load balancing configuration review
+| Commit | Slice | Deliverables |
+| --- | --- | --- |
+| `9a1e2d5` | 1 — Product report | `docs/myqueue-report.md` |
+| `78a1b23` | 2 — Guides | `docs/installation.md`, `docs/user-guide.md`, `docs/admin-guide.md` |
+| `c0ed34f` | 3 — Marketplace | `docs/marketplace-readiness.md` (OAuth + scope + branding) |
+| `73e08b3` | 4 — Legal | `docs/privacy-policy.md`, `docs/terms-of-service.md`, `docs/compliance-checklist.md` |
+| `0d60f22` | 5 — Deploy/ops | `docs/digitalocean-deployment.md`, `docs/monitoring-and-alerting.md`, `docs/disaster-recovery.md` |
+| `5009eab` | 6 — Audits | `docs/security-audit.md`, `docs/performance-results.md`, `docs/api-review.md`, `docs/accessibility-audit.md` |
+| (this slice) | 7 — Release | `docs/release-checklist.md`, README doc list, this update |
+
+Deliverables (struck through = delivered):
+
+- ✅ ~~Comprehensive MyQueue report.~~ `docs/myqueue-report.md`
+- ✅ ~~Installation docs.~~ `docs/installation.md`
+- ✅ ~~User guide.~~ `docs/user-guide.md`
+- ✅ ~~Admin guide.~~ `docs/admin-guide.md`
+- ✅ ~~Slack Marketplace checklist.~~ `docs/marketplace-readiness.md`
+- ✅ ~~OAuth review.~~ `docs/marketplace-readiness.md` §1
+- ✅ ~~Slack scope review.~~ `docs/marketplace-readiness.md` §2
+- ✅ ~~Branding assets checklist.~~ `docs/marketplace-readiness.md` §4 **[BUSINESS]**
+- ✅ ~~Privacy policy checklist.~~ `docs/privacy-policy.md` **[COUNSEL]**
+- ✅ ~~Terms of service checklist.~~ `docs/terms-of-service.md` **[COUNSEL]**
+- ✅ ~~Final legal compliance check.~~ `docs/compliance-checklist.md` **[COUNSEL]**
+- ✅ ~~Digital Ocean Deployment Guide (Webapp or droplet?).~~
+  `docs/digitalocean-deployment.md` — both options documented; **[DECISION]** which.
+- ✅ ~~Monitoring and alerting setup guide.~~ `docs/monitoring-and-alerting.md`
+- ✅ ~~Backup and recovery plan documentation.~~ `docs/disaster-recovery.md`
+- ✅ ~~Disaster recovery plan.~~ `docs/disaster-recovery.md`
+- ✅ ~~Load balancing configuration review.~~ `docs/disaster-recovery.md` §Load-balancing
+- ✅ ~~Security audit report.~~ `docs/security-audit.md`
+- ✅ ~~Performance testing results.~~ `docs/performance-results.md`
+- ✅ ~~API documentation review.~~ `docs/api-review.md`
+- ✅ ~~Accessibility compliance audit.~~ `docs/accessibility-audit.md`
+- ✅ ~~Release checklist.~~ `docs/release-checklist.md`
+- ✅ ~~README updates.~~ Documentation list expanded with all Phase 8 docs.
+- Architecture docs — existing `docs/architecture.md` (current; no change needed).
+
+**Remaining before public launch (business/legal, not engineering):** fill the
+`[BUSINESS]`/`[COUNSEL]` placeholders (legal entity/contact/jurisdiction, branding
+assets, production domain, DigitalOcean target), then work the go/no-go gate in
+`docs/release-checklist.md`.
+
 ---
 
 ## 12. Missing / recommended follow-ups

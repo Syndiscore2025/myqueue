@@ -87,16 +87,43 @@ This starts the API, a background worker, PostgreSQL, and Redis. See
 
 ## Documentation
 
+### Overview & development
+
 - [Getting Started](docs/getting-started.md)
+- [MyQueue Product Report](docs/myqueue-report.md)
 - [Architecture Overview](docs/architecture.md)
 - [Queue Engine (Phases 3A & 3B)](docs/queue-engine.md)
 - [Slack App Setup & Experience (Phases 2 & 4)](docs/slack.md)
 - [Local Development Guide](docs/local-development.md)
-- [Docker Guide](docs/docker.md)
-- [Deployment & Operations Guide](docs/deployment.md)
 - [Environment Guide](docs/environment.md)
 - [Testing Guide](docs/testing.md)
 - [Folder Structure Guide](docs/folder-structure.md)
+
+### Guides
+
+- [Installation Guide](docs/installation.md)
+- [User Guide](docs/user-guide.md)
+- [Admin Guide](docs/admin-guide.md)
+
+### Deployment & operations
+
+- [Docker Guide](docs/docker.md)
+- [Deployment & Operations Guide](docs/deployment.md)
+- [DigitalOcean Deployment Guide](docs/digitalocean-deployment.md)
+- [Monitoring & Alerting](docs/monitoring-and-alerting.md)
+- [Disaster Recovery Plan](docs/disaster-recovery.md)
+
+### Marketplace readiness, legal & audits
+
+- [Slack Marketplace Readiness](docs/marketplace-readiness.md)
+- [Privacy Policy (template)](docs/privacy-policy.md)
+- [Terms of Service (template)](docs/terms-of-service.md)
+- [Compliance Checklist](docs/compliance-checklist.md)
+- [Security Audit](docs/security-audit.md)
+- [Performance Results](docs/performance-results.md)
+- [API Review](docs/api-review.md)
+- [Accessibility Audit](docs/accessibility-audit.md)
+- [Release Checklist](docs/release-checklist.md)
 
 ## License
 
