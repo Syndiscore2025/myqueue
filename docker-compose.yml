@@ -16,6 +16,21 @@ x-app-env: &app-env
   CORS_ORIGINS: ${CORS_ORIGINS:-*}
 
 services:
+  # One-shot schema migration. Applies `prisma migrate deploy` against PostgreSQL
+  # and exits; the API and worker wait for it to complete successfully so they
+  # never start against an unmigrated database.
+  migrate:
+    build:
+      context: .
+      target: migrate
+    image: myqueue-migrate:latest
+    init: true
+    restart: 'no'
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build:
       context: .
@@ -31,6 +46,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   worker:
     build:
@@ -46,6 +63,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     # The worker serves no HTTP, so override the image's HTTP healthcheck with a
     # real Redis reachability probe (its critical dependency).
     healthcheck:

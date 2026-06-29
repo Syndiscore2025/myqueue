@@ -22,6 +22,8 @@ to begin.
 | `RATE_LIMIT_MAX`       | no       | `100`                      | Max requests per window per client.                               |
 | `RATE_LIMIT_WINDOW_MS` | no       | `60000`                    | Rate-limit window in milliseconds.                                |
 | `TRUST_PROXY`          | no       | `false`                    | Set `true` behind a reverse proxy/load balancer.                  |
+| `AUTH_TOKEN_SECRET`    | prod³    | `""`                       | Secret signing HS256 API bearer tokens (>= 32 chars). Phase 7.    |
+| `AUTH_TOKEN_TTL_SECONDS` | no     | `3600`                     | Lifetime of a minted API bearer token, in seconds.               |
 | `QUEUE_LOCK_MINUTES`        | no   | `5`                        | Lifetime of a worker's lock on a claimed item before it expires.  |
 | `QUEUE_HEARTBEAT_SECONDS`   | no   | `30`                       | How often workers refresh their lease via the heartbeat endpoint. |
 | `QUEUE_RECOVERY_BATCH_SIZE` | no   | `100`                      | Max expired locks reclaimed per recovery batch.                   |
@@ -54,6 +56,13 @@ the billing surface (`/api/v1/billing/*` and the Stripe webhook receiver) is
 mounted; when either is blank the app boots in **Free-only** mode with billing
 disabled, mirroring the Slack-optional pattern.
 
+³ `AUTH_TOKEN_SECRET` is optional in development/test, where the HTTP guards fall
+back to explicit `x-workspace-id` / `x-worker-id` headers, but **mandatory in
+production** (and at least 32 characters). In production that header fallback is
+disabled, so every API request must carry a valid `Authorization: Bearer <token>`
+minted from a verified Slack identity. See [`slack.md`](./slack.md) for how users
+obtain a token with `/myqueue token`.
+
 ## Generating secrets
 
 ```bash
@@ -73,3 +82,10 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
   ids map the Pro/Business plans to their recurring prices. Point a Stripe
   webhook endpoint at `{APP_BASE_URL}/api/v1/billing/webhook`. Leaving these
   blank runs the app in Free-only mode.
+- **API tokens** (`AUTH_TOKEN_SECRET`) — a self-generated secret (not a
+  third-party credential). It signs the HS256 bearer tokens that authenticate
+  the HTTP API. Users mint a personal token with the `/myqueue token` Slack
+  command; the token derives its workspace/user identity from the verified Slack
+  request, so Slack remains the single source of truth. A host integrating their
+  own identity provider can instead implement the `AuthVerifier` seam
+  (`src/application/auth`) and issue tokens from their own flow.

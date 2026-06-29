@@ -34,6 +34,15 @@ export const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   TRUST_PROXY: booleanFromString.default('false'),
 
+  // --- API authentication (Phase 7) ---
+  // Shared secret used to sign/verify HS256 bearer tokens for the HTTP API.
+  // Tokens are minted from a verified Slack identity (see the `/myqueue token`
+  // command). Defaults empty so the app boots without it in development, where
+  // the guards fall back to explicit headers; it is mandatory in production.
+  AUTH_TOKEN_SECRET: z.string().default(''),
+  // Lifetime, in seconds, of a minted bearer token before it must be refreshed.
+  AUTH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+
   // --- Queue processing & worker infrastructure (Phase 3B) ---
   // How long a worker's claim/lock on an item is held before it is considered
   // expired and eligible for recovery.
@@ -132,6 +141,18 @@ export function isBillingConfigured(source: Env): boolean {
   return REQUIRED_STRIPE_KEYS.every((key) => source[key].length > 0);
 }
 
+/** Minimum AUTH_TOKEN_SECRET length (bytes) accepted for HS256 signing. */
+const MIN_AUTH_TOKEN_SECRET_BYTES = 32;
+
+/**
+ * Whether a usable API-token secret is present. When false, bearer-token auth is
+ * inactive and the HTTP guards rely on their development header fallback (which
+ * is itself disabled in production, where the secret is mandatory).
+ */
+export function isAuthConfigured(source: Env): boolean {
+  return source.AUTH_TOKEN_SECRET.length >= MIN_AUTH_TOKEN_SECRET_BYTES;
+}
+
 export type Env = z.infer<typeof envSchema>;
 
 /**
@@ -156,6 +177,16 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
     const missing = REQUIRED_SLACK_KEYS.filter((key) => parsed[key].length === 0);
     throw new Error(
       `Invalid environment configuration:\n  - Slack credentials are required in production. Missing: ${missing.join(', ')}`,
+    );
+  }
+
+  // A strong API-token secret is mandatory in production: without it, bearer
+  // tokens cannot be verified and the development header fallback is disabled,
+  // leaving the HTTP API unauthenticated and unusable.
+  if (parsed.NODE_ENV === 'production' && !isAuthConfigured(parsed)) {
+    throw new Error(
+      `Invalid environment configuration:\n  - AUTH_TOKEN_SECRET is required in production ` +
+        `and must be at least ${MIN_AUTH_TOKEN_SECRET_BYTES} characters.`,
     );
   }
 

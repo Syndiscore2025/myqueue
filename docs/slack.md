@@ -111,6 +111,7 @@ Surfaces:
 | ------------------- | -------------------------------- | -------------------------------------------------------- |
 | App Home dashboard  | `app_home_opened` event          | Publishes the user's ranked queue with priority/status filters. |
 | `/myqueue` command  | Slash command                    | Navigates the queue/priority/status views from any channel.     |
+| `/myqueue token`    | Slash command                    | Mints a personal HS256 API bearer token (Phase 7), shown ephemerally. |
 | Add to MyQueue      | Message shortcut (`message_action`) | Captures a privacy-safe reference to the message as a `SLACK_MESSAGE` item. |
 | Item actions        | Block Kit buttons / overflow     | Start, Follow Up, Waiting, Snooze, Complete, Archive, Refresh.  |
 

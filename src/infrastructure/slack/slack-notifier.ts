@@ -2,6 +2,7 @@ import type { KnownBlock } from '@slack/types';
 import { WebClient } from '@slack/web-api';
 import type { NotificationMessage, Notifier } from '../../application/notifications/notifier';
 import { createLogger } from '../../utils/logger';
+import { notificationMetrics, type NotificationMetrics } from '../observability';
 import { slackInstallationRepository, type SlackInstallationRepository } from '../repositories';
 
 /**
@@ -30,6 +31,7 @@ export type SlackDmClientFactory = (token: string) => SlackDmClient;
 export interface SlackNotifierDeps {
   installations?: SlackInstallationRepository;
   clientFactory?: SlackDmClientFactory;
+  metrics?: NotificationMetrics;
 }
 
 const defaultClientFactory: SlackDmClientFactory = (token) => new WebClient(token);
@@ -45,11 +47,13 @@ const defaultClientFactory: SlackDmClientFactory = (token) => new WebClient(toke
 export class SlackNotifier implements Notifier {
   private readonly installations: SlackInstallationRepository;
   private readonly clientFactory: SlackDmClientFactory;
+  private readonly metrics: NotificationMetrics;
   private readonly log = createLogger('slack-notifier');
 
   constructor(deps: SlackNotifierDeps = {}) {
     this.installations = deps.installations ?? slackInstallationRepository;
     this.clientFactory = deps.clientFactory ?? defaultClientFactory;
+    this.metrics = deps.metrics ?? notificationMetrics;
   }
 
   async dmUser(
@@ -61,6 +65,7 @@ export class SlackNotifier implements Notifier {
       const token = await this.installations.getBotToken(workspaceId);
       if (token === null || token.length === 0) {
         this.log.warn({ workspaceId }, 'no bot token for workspace; skipping notification');
+        await this.metrics.recordDmFailure(workspaceId, 'no_token');
         return false;
       }
 
@@ -69,6 +74,7 @@ export class SlackNotifier implements Notifier {
       const channel = opened.channel?.id;
       if (channel === undefined || channel === null || channel.length === 0) {
         this.log.warn({ workspaceId, slackUserId }, 'could not open DM channel; skipping');
+        await this.metrics.recordDmFailure(workspaceId, 'no_channel');
         return false;
       }
 
@@ -83,6 +89,7 @@ export class SlackNotifier implements Notifier {
         { err: error, workspaceId, slackUserId },
         'failed to deliver Slack notification',
       );
+      await this.metrics.recordDmFailure(workspaceId, 'send_error');
       return false;
     }
   }

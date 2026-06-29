@@ -30,6 +30,14 @@ export interface UpdateRecurrenceRuleInput {
   runCount?: number;
 }
 
+/** Operational summary of a workspace's recurrence rules for observability. */
+export interface RecurrenceSchedulerSummary {
+  /** Number of enabled rules that are actively producing items. */
+  enabledRules: number;
+  /** Soonest `nextRunAt` among enabled rules — the next spawn time. */
+  nextRunAt: Date | null;
+}
+
 /** A due rule returned by claimDueRules (full columns required to spawn items). */
 export interface DueRecurrenceRule {
   id: string;
@@ -133,6 +141,21 @@ export class QueueRecurrenceRepository {
     data: { nextRunAt: Date | null; lastRunAt: Date; runCount: number; isEnabled: boolean },
   ): Promise<QueueRecurrenceRule> {
     return this.prisma.queueRecurrenceRule.update({ where: { id }, data });
+  }
+
+  /**
+   * Summarise a workspace's recurrence rules for the observability endpoint:
+   * how many enabled rules exist and when the next one is due to spawn an item.
+   */
+  async getSchedulerSummary(workspaceId: string): Promise<RecurrenceSchedulerSummary> {
+    const [enabledRules, agg] = await Promise.all([
+      this.prisma.queueRecurrenceRule.count({ where: { workspaceId, isEnabled: true } }),
+      this.prisma.queueRecurrenceRule.aggregate({
+        where: { workspaceId, isEnabled: true, nextRunAt: { not: null } },
+        _min: { nextRunAt: true },
+      }),
+    ]);
+    return { enabledRules, nextRunAt: agg._min.nextRunAt ?? null };
   }
 }
 

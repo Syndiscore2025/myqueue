@@ -7,6 +7,7 @@ import {
   queueStatisticsService,
   type CreateItemInput,
 } from '../../../application/queue';
+import { schedulerStatisticsService } from '../../../application/observability';
 import {
   queueRateLimitRepository,
   queueDependencyRepository,
@@ -138,6 +139,17 @@ queueRouter.get(
   asyncHandler(async (req, res) => {
     const ctx = requireWorkspaceContext(req);
     const statistics = await queueStatisticsService.get(ctx.workspaceId);
+    res.status(200).json({ statistics });
+  }),
+);
+
+// Operator: read scheduler/orchestration observability for the workspace —
+// gated-item counts, recurrence + rate-limit footprint, and DM-delivery health.
+queueRouter.get(
+  '/scheduler',
+  asyncHandler(async (req, res) => {
+    const ctx = requireWorkspaceContext(req);
+    const statistics = await schedulerStatisticsService.get(ctx.workspaceId);
     res.status(200).json({ statistics });
   }),
 );

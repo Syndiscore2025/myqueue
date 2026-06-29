@@ -45,6 +45,7 @@ export {
   type FailProcessingParams,
   type RequeueDeadLetterParams,
   type QueueStatistics,
+  type SchedulerStatistics,
 } from './queue-item-repository';
 export {
   QueueEventRepository,
@@ -69,6 +70,7 @@ export {
   type CreateRecurrenceRuleInput,
   type UpdateRecurrenceRuleInput,
   type DueRecurrenceRule,
+  type RecurrenceSchedulerSummary,
 } from './queue-recurrence-repository';
 export {
   QueueRateLimitRepository,

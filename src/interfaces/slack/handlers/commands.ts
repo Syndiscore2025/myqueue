@@ -1,4 +1,6 @@
 import type { App, RespondFn, SlackCommandMiddlewareArgs } from '@slack/bolt';
+import { env } from '../../../config';
+import { authTokenService } from '../../../infrastructure/auth';
 import { createLogger } from '../../../utils/logger';
 import { QueueView, SLACK_COMMANDS } from '../constants';
 import { buildQueueBlocks, section } from '../views';
@@ -50,9 +52,48 @@ export function helpBlocks(): ReturnType<typeof section>[] {
         '`/myqueue` — your active queue',
         '`/myqueue red|yellow|green` — by priority',
         '`/myqueue working|follow-up|waiting|snoozed|archive` — by status',
+        '`/myqueue token` — mint a personal API token',
       ].join('\n'),
     ),
   ];
+}
+
+/**
+ * Mint a short-lived personal API bearer token for the calling Slack user and
+ * return it ephemerally. The Slack request signature has already authenticated
+ * the user, so this is a safe, self-service token endpoint: the token carries
+ * only the caller's own workspace/user identity. The value is shown solely to
+ * the requester and is never logged.
+ */
+async function handleTokenRequest(
+  respond: RespondFn,
+  context: Parameters<typeof resolveContext>[0],
+  slackUserId: string,
+): Promise<void> {
+  if (authTokenService === null) {
+    await respond({
+      response_type: 'ephemeral',
+      text: 'API tokens are not enabled for this deployment.',
+    });
+    return;
+  }
+  const ctx = await resolveContext(context, slackUserId);
+  const token = authTokenService.signUser(ctx);
+  const ttlMinutes = Math.round(env.AUTH_TOKEN_TTL_SECONDS / 60);
+  await respond({
+    response_type: 'ephemeral',
+    text: 'Your MyQueue API token',
+    blocks: [
+      section(
+        [
+          `*Your MyQueue API token* (valid ~${ttlMinutes} min, visible only to you)`,
+          'Send it as `Authorization: Bearer <token>` to the MyQueue API:',
+          '```' + token + '```',
+          `Example: \`curl -H "Authorization: Bearer <token>" ${env.APP_BASE_URL}/api/v1/queue\``,
+        ].join('\n'),
+      ),
+    ],
+  });
 }
 
 /**
@@ -66,6 +107,18 @@ async function handleCommand(
   respond: RespondFn,
   context: Parameters<typeof resolveContext>[0],
 ): Promise<void> {
+  if (args.text.trim().toLowerCase() === 'token') {
+    try {
+      await handleTokenRequest(respond, context, args.user_id);
+    } catch (error) {
+      log.error({ err: error, user: args.user_id }, 'failed to mint /myqueue token');
+      await respond({
+        response_type: 'ephemeral',
+        text: 'Could not mint a token. Make sure MyQueue is installed for this workspace.',
+      });
+    }
+    return;
+  }
   const view = parseCommandView(args.text);
   if (view === null) {
     await respond({ response_type: 'ephemeral', text: 'MyQueue help', blocks: helpBlocks() });

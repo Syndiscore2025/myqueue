@@ -93,6 +93,7 @@ This starts the API, a background worker, PostgreSQL, and Redis. See
 - [Slack App Setup & Experience (Phases 2 & 4)](docs/slack.md)
 - [Local Development Guide](docs/local-development.md)
 - [Docker Guide](docs/docker.md)
+- [Deployment & Operations Guide](docs/deployment.md)
 - [Environment Guide](docs/environment.md)
 - [Testing Guide](docs/testing.md)
 - [Folder Structure Guide](docs/folder-structure.md)

@@ -1,4 +1,4 @@
-import { isSlackConfigured, parseEnv } from '../../src/config/env';
+import { isAuthConfigured, isSlackConfigured, parseEnv } from '../../src/config/env';
 
 const validEnv: NodeJS.ProcessEnv = {
   NODE_ENV: 'test',
@@ -14,6 +14,9 @@ const slackEnv: NodeJS.ProcessEnv = {
   SLACK_SIGNING_SECRET: 'signing-secret',
   SLACK_STATE_SECRET: 'state-secret',
 };
+
+/** The additional credentials required to boot in production. */
+const prodEnv: NodeJS.ProcessEnv = { ...slackEnv, AUTH_TOKEN_SECRET: 'a'.repeat(32) };
 
 describe('environment validation', () => {
   it('parses a valid environment and applies defaults', () => {
@@ -92,6 +95,29 @@ describe('environment validation', () => {
 
   it('requires Slack credentials in production', () => {
     expect(() => parseEnv({ ...validEnv, NODE_ENV: 'production' })).toThrow(/Slack credentials/);
-    expect(() => parseEnv({ ...validEnv, ...slackEnv, NODE_ENV: 'production' })).not.toThrow();
+    expect(() => parseEnv({ ...validEnv, ...prodEnv, NODE_ENV: 'production' })).not.toThrow();
+  });
+
+  it('applies the API-token defaults and reports auth configuration', () => {
+    const env = parseEnv(validEnv);
+    expect(env.AUTH_TOKEN_SECRET).toBe('');
+    expect(env.AUTH_TOKEN_TTL_SECONDS).toBe(3600);
+    expect(isAuthConfigured(env)).toBe(false);
+    expect(isAuthConfigured(parseEnv({ ...validEnv, AUTH_TOKEN_SECRET: 'a'.repeat(32) }))).toBe(
+      true,
+    );
+  });
+
+  it('treats an AUTH_TOKEN_SECRET shorter than 32 chars as unconfigured', () => {
+    expect(isAuthConfigured(parseEnv({ ...validEnv, AUTH_TOKEN_SECRET: 'short' }))).toBe(false);
+  });
+
+  it('requires a strong AUTH_TOKEN_SECRET in production', () => {
+    expect(() => parseEnv({ ...validEnv, ...slackEnv, NODE_ENV: 'production' })).toThrow(
+      /AUTH_TOKEN_SECRET/,
+    );
+    expect(() =>
+      parseEnv({ ...validEnv, ...slackEnv, AUTH_TOKEN_SECRET: 'short', NODE_ENV: 'production' }),
+    ).toThrow(/AUTH_TOKEN_SECRET/);
   });
 });

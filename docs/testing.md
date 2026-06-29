@@ -66,8 +66,11 @@ $env:RUN_INTEGRATION = 'true'; npm test
 ## In CI
 
 The GitHub Actions `verify` job starts PostgreSQL and Redis as service
-containers and runs the full suite with `RUN_INTEGRATION=true`, so the
-connectivity tests execute on every push and pull request.
+containers, applies the Prisma migrations (`npm run prisma:migrate`), then runs
+the full gate (lint, format, typecheck, test, build) with `RUN_INTEGRATION=true`,
+so the connectivity and database integration tests execute on every push and
+pull request. A second `docker` job builds the production image after `verify`
+passes.
 
 ## Writing new tests
 

@@ -17,14 +17,33 @@ function buildOptions(): LoggerOptions {
       level: (label) => ({ level: label }),
     },
     redact: {
+      // Single-level wildcards only match one depth, so secret-bearing fields
+      // are listed both at the top level and one level down (where errors and
+      // request/response objects nest them). Keep this list ahead of any new
+      // credential-carrying field that might reach a log.
       paths: [
         'req.headers.authorization',
         'req.headers.cookie',
         'req.headers["x-slack-signature"]',
+        'req.headers["x-api-key"]',
+        '*.headers.authorization',
+        '*.headers.cookie',
+        'password',
+        'token',
+        'secret',
+        'apiKey',
         '*.password',
         '*.token',
         '*.secret',
         '*.apiKey',
+        '*.botToken',
+        '*.accessToken',
+        '*.refreshToken',
+        '*.clientSecret',
+        '*.signingSecret',
+        '*.encryptionKey',
+        '*.privateKey',
+        '*.signature',
       ],
       censor: '[REDACTED]',
     },

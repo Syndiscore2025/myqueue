@@ -63,6 +63,11 @@ export class QueueRateLimitRepository {
     });
   }
 
+  /** Count the rate-limit buckets configured for a workspace (observability). */
+  async countBuckets(workspaceId: string): Promise<number> {
+    return this.prisma.queueRateLimitBucket.count({ where: { workspaceId } });
+  }
+
   /**
    * Atomically check and consume one slot in the rate-limit bucket.
    * Performs a lazy window reset when the current window has expired.

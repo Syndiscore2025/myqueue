@@ -446,6 +446,57 @@ registry.registerPath({
   },
 });
 
+// --- Scheduler & orchestration observability (Phase 7) -----------------------
+// Operator-facing view of gated items, recurrence/rate-limit footprint, and
+// notification-delivery health, guarded by workspace context.
+
+const SchedulerStatisticsSchema = registry.register(
+  'SchedulerStatistics',
+  z.object({
+    scheduler: z.object({
+      snoozed: z.number().int(),
+      scheduled: z.number().int(),
+      delayed: z.number().int(),
+      blocked: z.number().int(),
+      pendingActivation: z.number().int().openapi({
+        description: 'All items whose availableAt claim gate has not yet passed.',
+      }),
+      nextActivationAt: z.string().nullable(),
+      oldestPendingCreatedAt: z.string().nullable(),
+    }),
+    recurrence: z.object({
+      enabledRules: z.number().int(),
+      nextRunAt: z.string().nullable(),
+    }),
+    rateLimit: z.object({ buckets: z.number().int() }),
+    notifications: z.object({
+      dmFailures: z.object({
+        noToken: z.number().int(),
+        noChannel: z.number().int(),
+        sendError: z.number().int(),
+        total: z.number().int(),
+      }),
+    }),
+  }),
+);
+const SchedulerEnvelope = z.object({ statistics: SchedulerStatisticsSchema });
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/v1/queue/scheduler',
+  summary: 'Read scheduler & orchestration observability',
+  description:
+    'Gated-item counts (snoozed/scheduled/delayed/blocked) with the next activation time and ' +
+    'oldest pending item, enabled recurrence rules and their next run, the rate-limit bucket ' +
+    'footprint, and DM-notification delivery failures by reason for the workspace.',
+  tags: ['Queue'],
+  request: { headers: workspaceHeaders },
+  responses: {
+    200: { description: 'The workspace scheduler statistics.', content: json(SchedulerEnvelope) },
+    ...guarded,
+  },
+});
+
 // --- Queue worker processing (Phase 3B) --------------------------------------
 // Worker-facing routes identified by an explicit worker id rather than a user.
 
