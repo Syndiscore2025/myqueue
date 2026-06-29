@@ -505,25 +505,40 @@ These are the main items worth addressing before public production launch:
    and `testing` were refreshed with the Phase 3B/3C APIs and the CI gate;
    operational guidance now lives in `docs/deployment.md` (Phase 7 Slice 10,
    `d4dfa28`).
-7. **Circular dependency protection.** Confirm dependency creation rejects cycles
-   with tests; if missing, add it before exposing dependency APIs broadly.
+7. ⚠️ **Circular dependency protection.** _Still open (only open engineering
+   item)._ `QueueDependencyRepository.addEdge()` validates that both items exist in
+   the workspace but performs **no cycle detection**, and tests cover dependency
+   _resolution_ (Done/DeadLetter cascade) rather than cycle _rejection_. Add cycle
+   detection plus tests before exposing the dependency APIs broadly.
 8. ✅ ~~**Rate-limit behavior under concurrency.**~~ _Addressed in Phase 7 Slice 7
    (`bfa1aa4`)._ A concurrent integration test proves a full bucket gates parallel
    claims and reopens once capacity frees.
 9. ✅ ~~**Operational runbooks.**~~ _Addressed in Phase 7 Slice 10 (`d4dfa28`)._
    `docs/deployment.md` adds runbooks for worker stalls, recurring-rule failures,
    DLQ growth, migration failures, and Slack API outages, plus deploy/rollback.
-10. **Secrets management.** Ensure no Slack, Stripe, database, or signing secrets are
-    exposed to client code, logs, command arguments, or generated documentation.
-11. **Marketplace legal/docs.** Privacy policy, terms, data retention, deletion, and
-    customer support flows should be drafted before Phase 8 review.
-12. **Notification preference management.** Phase 5 reads the per-workspace
-    notification preferences but exposes no user-facing way to change them; add a
-    settings surface (App Home/API) to toggle them and set `dailyDigestHourUtc`.
-13. **Digest scheduling robustness.** The digest fires when `dailyDigestHourUtc`
-    equals the current UTC hour; consider per-user timezones/DST and add gated
-    integration tests proving the per-workspace/owner/day idempotency key holds
-    across overlapping sweeps.
+10. ✅ ~~**Secrets management.**~~ _Addressed across Phases 7–8._ Pino redacts
+    `Authorization`/`cookie`/`x-slack-signature` headers and `token`/`secret`/
+    `botToken`/`clientSecret`/`signingSecret`/`encryptionKey` fields
+    (`src/utils/logger.ts`); Slack tokens are AES-256-GCM at rest, config is
+    validated at boot, and no raw tokens or Stripe ids are echoed to clients.
+    Documented in `docs/security-audit.md` and `docs/compliance-checklist.md`.
+    _Remaining (business): define a secret-rotation procedure/cadence._
+11. ✅ ~~**Marketplace legal/docs.**~~ _Addressed in Phase 8 Slice 4._
+    `docs/privacy-policy.md`, `docs/terms-of-service.md`, and
+    `docs/compliance-checklist.md` cover data collection, retention, deletion, and
+    support flows. _Remaining (counsel): fill the `[COUNSEL]` placeholders._
+12. 🟡 **Notification preference management.** _Partially addressed (Phase 6)._
+    `PATCH /api/v1/workspace/settings` now exposes every preference
+    (`notifyOnAssignment`, `notifyOnSnoozeWake`, `notifyOnFollowUpDue`,
+    `dailyDigestEnabled`, `dailyDigestHourUtc`) via
+    `updateWorkspaceSettingsSchema`. _Remaining: an in-Slack **App Home** toggle
+    UI; today it is API-only._
+13. 🟡 **Digest scheduling robustness.** _Partially addressed._ The idempotency
+    half is done: a gated integration test (`tests/integration/notifications.test.ts`)
+    plus unit tests prove the per-workspace/owner/day key holds across sweeps.
+    _Remaining: `DigestService.digestBatch` still fires on
+    `dailyDigestHourUtc === now.getUTCHours()` (UTC-only) — add per-user
+    timezone/DST handling._
 14. ✅ ~~**Notification delivery observability.**~~ _Addressed in Phase 7 Slice 4
     (`250eb62`)._ Redis-backed DM-failure metrics record per-reason counters wired into
     `SlackNotifier`'s failure paths.
