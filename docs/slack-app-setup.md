@@ -46,6 +46,7 @@ Go to **OAuth & Permissions** in the left sidebar. Scroll to
 | `commands` | Slash command `/myqueue` |
 | `chat:write` | Post messages and DMs |
 | `im:write` | Open DM channels for notifications |
+| `im:read` | Resolve 1:1 DM membership metadata |
 | `users:read` | Look up user info |
 | `team:read` | Read workspace info |
 | `channels:read` | Resolve public channel names/info |
@@ -55,6 +56,13 @@ Go to **OAuth & Permissions** in the left sidebar. Scroll to
 | `mpim:read` | Resolve group-DM info where allowed |
 | `mpim:history` | Receive group-DM events where allowed |
 | `im:history` | Receive app/bot DM events |
+
+Under **OAuth & Permissions → Scopes → User Token Scopes**, add:
+
+| Scope | Why |
+| ------------ | -------------------------------------------- |
+| `im:read` | Resolve personal DM membership metadata |
+| `im:history` | Receive authorized personal DM message events |
 
 Do **not** add message-content scopes beyond these without a specific product
 reason. MyQueue stores attention pointers only — sender/channel ids, priority,
@@ -148,6 +156,12 @@ Under **Subscribe to bot events → Add Bot User Event:**
 | `message.groups` | Auto-captures observable private-channel attention pointers |
 | `message.mpim` | Auto-captures observable group-DM attention pointers |
 | `message.im` | Auto-captures app/bot DM attention pointers |
+
+Under **Subscribe to events on behalf of users → Add Workspace Event:**
+
+| Event | Why |
+| ----------------- | ----------------------------- |
+| `message.im` | Auto-captures authorized personal 1:1 DM attention pointers |
 
 ### 9. App Home
 

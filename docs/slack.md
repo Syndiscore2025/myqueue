@@ -36,16 +36,16 @@ notifications, and automatic attention-pointer capture from Slack conversations
 the app is allowed to observe:
 
 ```
-SLACK_BOT_SCOPES=commands,chat:write,im:write,users:read,team:read,channels:read,channels:history,groups:read,groups:history,mpim:read,mpim:history,im:history
-SLACK_USER_SCOPES=
+SLACK_BOT_SCOPES=commands,chat:write,im:write,im:read,users:read,team:read,channels:read,channels:history,groups:read,groups:history,mpim:read,mpim:history,im:history
+SLACK_USER_SCOPES=im:read,im:history
 ```
 
-`im:write` is added in Phase 5 so the notifier can open a DM channel
-(`conversations.open`) before posting; `chat:write` covers the message itself.
-The `*:history` scopes let Slack deliver Events API message notifications where
-the app has conversation visibility. MyQueue uses those events to store only
-attention metadata — sender/channel ids, timestamp, priority, and a Slack link —
-never the message body.
+`im:write` lets the notifier open a DM channel (`conversations.open`) before
+posting; `chat:write` covers the message itself. The `*:history` scopes let
+Slack deliver Events API message notifications where the app or installing user
+has conversation visibility. MyQueue uses those events to store only attention
+metadata — sender/channel ids, timestamp, priority, and a Slack link — never the
+message body.
 
 Set the **same** bot scopes under **OAuth & Permissions → Scopes → Bot Token
 Scopes** in the portal so the consent screen matches.

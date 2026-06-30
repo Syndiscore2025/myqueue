@@ -50,6 +50,62 @@ function shouldIgnoreMessage(event: SlackMessageEvent): boolean {
   );
 }
 
+function isDirectMessage(event: SlackMessageEvent): boolean {
+  return event.channel_type === 'im';
+}
+
+async function directMessageRecipientIds(
+  event: SlackMessageEvent,
+  context: Context,
+  client: WebClient,
+): Promise<string[]> {
+  if (!isDirectMessage(event)) {
+    return [];
+  }
+  try {
+    const userToken = context.userToken;
+    const result = await client.conversations.members({
+      channel: event.channel!,
+      ...(userToken === undefined || userToken.length === 0 ? {} : { token: userToken }),
+    });
+    const members = Array.isArray(result.members)
+      ? result.members.filter((member): member is string => typeof member === 'string')
+      : [];
+    const recipients = members.filter(
+      (member) => member !== event.user && member !== context.botUserId,
+    );
+    if (userToken !== undefined && userToken.length > 0) {
+      return context.userId !== undefined && recipients.includes(context.userId)
+        ? [context.userId]
+        : [];
+    }
+    return recipients;
+  } catch (error) {
+    log.warn({ err: error, channel: event.channel }, 'could not resolve Slack DM recipient');
+    return [];
+  }
+}
+
+async function attentionOwnerIds(
+  event: SlackMessageEvent,
+  context: Context,
+  client: WebClient,
+): Promise<string[]> {
+  if (isDirectMessage(event)) {
+    return directMessageRecipientIds(event, context, client);
+  }
+  const senderSlackUserId = event.user!;
+  const mentioned = mentionedUserIds(event.text).filter((userId) => userId !== senderSlackUserId);
+  if (mentioned.length > 0) {
+    return mentioned;
+  }
+  return [];
+}
+
+function defaultAttentionPriority(event: SlackMessageEvent): QueuePriority {
+  return isDirectMessage(event) ? QueuePriority.Green : QueuePriority.Yellow;
+}
+
 async function getPermalink(
   client: WebClient,
   channel: string,
@@ -66,8 +122,9 @@ async function getPermalink(
 
 /**
  * Automatically create name-only attention pointers for observable Slack messages.
- * The message body is used only in-memory to detect direct mentions; it is never
- * persisted or rendered in MyQueue.
+ * The message body is used only in-memory to detect direct mentions; 1:1 DMs use
+ * conversation membership metadata instead. Message text is never persisted or
+ * rendered in MyQueue.
  */
 export async function handleMessageEvent(
   event: SlackMessageEvent,
@@ -80,15 +137,15 @@ export async function handleMessageEvent(
   }
 
   const senderSlackUserId = event.user!;
-  const mentioned = mentionedUserIds(event.text).filter((userId) => userId !== senderSlackUserId);
-  if (mentioned.length === 0) {
+  const owners = await attentionOwnerIds(event, context, client);
+  if (owners.length === 0) {
     return;
   }
 
   const senderCtx = await resolveContext(context, senderSlackUserId);
   const permalink = await getPermalink(client, event.channel!, event.ts!);
   const threadKey = event.thread_ts ?? null;
-  for (const ownerSlackUserId of mentioned) {
+  for (const ownerSlackUserId of owners) {
     const idempotencyKey = `slack:event:message:${body.event_id ?? event.ts}:${ownerSlackUserId}`;
     const fresh = await slackIdempotencyService.claim(idempotencyKey);
     if (!fresh) {
@@ -101,7 +158,7 @@ export async function handleMessageEvent(
     await queueService.createOrUpdateSlackAttention(senderCtx, {
       title: 'Slack attention',
       ownerWorkspaceUserId: ownerCtx.workspaceUserId,
-      priority: QueuePriority.Yellow,
+      priority: defaultAttentionPriority(event),
       sourceType: QueueSourceType.SLACK_MESSAGE,
       sourceSlackChannelId: event.channel!,
       sourceSlackUserId: senderSlackUserId,

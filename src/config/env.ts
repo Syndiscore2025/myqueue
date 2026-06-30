@@ -88,16 +88,16 @@ export const envSchema = z.object({
   SLACK_STATE_SECRET: z.string().default(''),
   SLACK_APP_TOKEN: z.string().default(''),
   // Bot/user OAuth scopes requested during installation. Stored as CSV so the
-  // requested scope set can be changed without code changes. Phase 5 adds
-  // `im:write` so the notifier can open a DM channel (conversations.open) before
-  // posting; `chat:write` covers the message itself.
+  // requested scope set can be changed without code changes. `im:write` lets the
+  // notifier open DM channels; `im:read`/`im:history` let MyQueue capture
+  // metadata-only attention pointers from personal DMs the installer authorizes.
   SLACK_BOT_SCOPES: z
     .string()
     .default(
-      'commands,chat:write,im:write,users:read,team:read,channels:read,channels:history,groups:read,groups:history,mpim:read,mpim:history,im:history',
+      'commands,chat:write,im:write,im:read,users:read,team:read,channels:read,channels:history,groups:read,groups:history,mpim:read,mpim:history,im:history',
     )
     .transform(splitCsv),
-  SLACK_USER_SCOPES: z.string().default('').transform(splitCsv),
+  SLACK_USER_SCOPES: z.string().default('im:read,im:history').transform(splitCsv),
 
   // --- Billing (Phase 6) ---
   // Stripe secret API key and webhook signing secret. Both default empty so the

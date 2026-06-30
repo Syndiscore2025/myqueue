@@ -37,8 +37,8 @@ to begin.
 | `SLACK_SIGNING_SECRET` | prod¹    | `""`                       | Slack request-signing secret (verifies inbound requests).        |
 | `SLACK_STATE_SECRET`   | prod¹    | `""`                       | Slack OAuth state secret.                                         |
 | `SLACK_APP_TOKEN`      | no       | `""`                       | Slack app-level token (Socket Mode only).                        |
-| `SLACK_BOT_SCOPES`     | no       | `commands,chat:write,im:write,users:read,team:read` | Comma-separated bot OAuth scopes requested on install. `im:write` lets the notifier open DM channels (Phase 5). |
-| `SLACK_USER_SCOPES`    | no       | `""`                       | Comma-separated user OAuth scopes requested on install.          |
+| `SLACK_BOT_SCOPES`     | no       | `commands,chat:write,im:write,im:read,users:read,team:read,...` | Comma-separated bot OAuth scopes requested on install. |
+| `SLACK_USER_SCOPES`    | no       | `im:read,im:history`        | Comma-separated user OAuth scopes requested for authorized personal DM capture. |
 | `STRIPE_SECRET_KEY`    | billing² | `""`                       | Stripe secret API key (Checkout, billing portal, API calls).     |
 | `STRIPE_WEBHOOK_SECRET`| billing² | `""`                       | Stripe webhook signing secret (verifies inbound webhooks).       |
 | `STRIPE_PRICE_PRO`     | no       | `""`                       | Stripe recurring price id mapped to the **Pro** plan.            |

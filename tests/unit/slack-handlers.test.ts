@@ -333,6 +333,61 @@ describe('registerMessageEvents', () => {
     );
   });
 
+  it('auto-creates a name-only attention pointer for direct messages without mentions', async () => {
+    mock(slackIdentityService.resolveContext)
+      .mockResolvedValueOnce({ workspaceId: 'w1', workspaceUserId: 'sender' })
+      .mockResolvedValueOnce({ workspaceId: 'w1', workspaceUserId: 'owner' });
+    mock(queueService.createOrUpdateSlackAttention).mockResolvedValue(item());
+    const members = jest.fn().mockResolvedValue({ members: ['U_SENDER', 'UOWNER'] });
+    const getPermalink = jest.fn().mockResolvedValue({
+      permalink: 'https://acme.slack.com/archives/D1/p1700000000000200',
+    });
+    await capture()({
+      event: {
+        type: 'message',
+        channel_type: 'im',
+        user: 'U_SENDER',
+        channel: 'D1',
+        ts: '1700000000.000200',
+        text: 'are you there?',
+      },
+      body: { event_id: 'EvDM1' },
+      context: { teamId: 'T1', userId: 'UOWNER', userToken: 'xoxp-test' },
+      client: { conversations: { members }, chat: { getPermalink } },
+    });
+    expect(members).toHaveBeenCalledWith({ channel: 'D1', token: 'xoxp-test' });
+    expect(queueService.createOrUpdateSlackAttention).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workspaceUserId: 'sender' },
+      expect.objectContaining({
+        ownerWorkspaceUserId: 'owner',
+        priority: QueuePriority.Green,
+        sourceSlackChannelId: 'D1',
+        sourceSlackUserId: 'U_SENDER',
+        sourceSlackMessageTs: '1700000000.000200',
+        sourceSlackPermalink: 'https://acme.slack.com/archives/D1/p1700000000000200',
+      }),
+      300000,
+    );
+  });
+
+  it('does not create a direct-message pointer for someone other than the authorized user', async () => {
+    const members = jest.fn().mockResolvedValue({ members: ['U_SENDER', 'U_OTHER'] });
+    await capture()({
+      event: {
+        type: 'message',
+        channel_type: 'im',
+        user: 'U_SENDER',
+        channel: 'D1',
+        ts: '1700000000.000300',
+        text: 'outbound message',
+      },
+      body: { event_id: 'EvDM2' },
+      context: { teamId: 'T1', userId: 'U_AUTHORIZED', userToken: 'xoxp-test' },
+      client: { conversations: { members }, chat: { getPermalink: jest.fn() } },
+    });
+    expect(queueService.createOrUpdateSlackAttention).not.toHaveBeenCalled();
+  });
+
   it('ignores non-mentioned channel messages because routing rules are not known yet', async () => {
     await capture()({
       event: { type: 'message', user: 'U1', channel: 'C1', ts: '1.0', text: 'hello team' },
