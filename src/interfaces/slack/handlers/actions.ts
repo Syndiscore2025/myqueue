@@ -53,10 +53,14 @@ export function parseOverflowValue(
   if (permanentQueueId.length === 0) {
     return null;
   }
-  if (action === SLACK_OVERFLOW_ACTIONS.complete || action === SLACK_OVERFLOW_ACTIONS.archive) {
+  if (isSlackOverflowAction(action)) {
     return { action, permanentQueueId };
   }
   return null;
+}
+
+function isSlackOverflowAction(value: string): value is SlackOverflowAction {
+  return (Object.values(SLACK_OVERFLOW_ACTIONS) as string[]).includes(value);
 }
 
 /**

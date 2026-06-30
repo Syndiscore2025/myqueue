@@ -71,15 +71,21 @@ dedicated list endpoints rather than the ranked active queue.
 
 Priority has three tiers — **Red** (urgent), **Yellow** (needs attention), and
 **Green** (low). When an item is created without an explicit priority, the
-`PriorityClassificationService` assigns one deterministically:
+`PriorityClassificationService` assigns one deterministically. The default
+vocabulary is the **MCA edition**, tuned for merchant-cash-advance and business
+funding conversations:
 
 1. **Red** wins if any urgent signal is present — whole-word, case-insensitive
-   keyword matches (e.g. `urgent`, `asap`, `outage`, `p0`, `blocker`) or a known
-   imminent deadline.
+   keyword/phrase matches (e.g. `urgent`, `asap`, `outage`, `p0`, `blocker`,
+   `can't proceed`) or a known imminent deadline.
 2. Otherwise **Yellow** if any attention signal is present — attention keywords
-   (e.g. `today`, `review`, `deadline`), a question (the text contains `?` or is
-   flagged as a question), or the owner being @-mentioned.
+   and phrases (e.g. `today`, `review`, `deadline`, `approval needed`,
+   `customer waiting`, `bank statements`, `proof of ownership`, `stips needed`),
+   an explicit question signal, or the owner being @-mentioned.
 3. Otherwise **Green**.
+
+Punctuation alone is not a priority signal; adding `!` or `?` to otherwise normal
+text does not escalate an item.
 
 Classification is explainable: every result carries the `matchedSignals` and a
 human-readable `reason`, and auto-classifications are recorded in the priority

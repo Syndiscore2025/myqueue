@@ -43,8 +43,17 @@ export async function loadQueueView(
   }
 }
 
-/** A lifecycle action a user can trigger on a single item from the Slack surface. */
-export type ItemAction = 'working' | 'waiting' | 'followup' | 'snooze' | 'complete' | 'archive';
+/** A single-item action a user can trigger from the Slack surface. */
+export type ItemAction =
+  | 'working'
+  | 'waiting'
+  | 'followup'
+  | 'snooze'
+  | 'complete'
+  | 'archive'
+  | 'priority_red'
+  | 'priority_yellow'
+  | 'priority_green';
 
 /** Map a primary button `action_id` to its {@link ItemAction}. */
 export const ACTION_ID_TO_ITEM_ACTION: Readonly<Record<string, ItemAction>> = {
@@ -80,5 +89,11 @@ export async function applyItemAction(
       return (await queueService.complete(ctx, permanentQueueId)).status;
     case 'archive':
       return (await queueService.archive(ctx, permanentQueueId)).status;
+    case 'priority_red':
+      return (await queueService.updatePriority(ctx, permanentQueueId, QueuePriority.Red)).status;
+    case 'priority_yellow':
+      return (await queueService.updatePriority(ctx, permanentQueueId, QueuePriority.Yellow)).status;
+    case 'priority_green':
+      return (await queueService.updatePriority(ctx, permanentQueueId, QueuePriority.Green)).status;
   }
 }

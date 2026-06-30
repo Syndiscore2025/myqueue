@@ -70,6 +70,8 @@ describe('itemActions', () => {
       options: Array<{ value: string }>;
     };
     expect(overflow.options.map((o) => o.value)).toEqual([
+      `${SLACK_OVERFLOW_ACTIONS.priorityRed}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.priorityYellow}:MQ-42`,
       `${SLACK_OVERFLOW_ACTIONS.complete}:MQ-42`,
       `${SLACK_OVERFLOW_ACTIONS.archive}:MQ-42`,
     ]);

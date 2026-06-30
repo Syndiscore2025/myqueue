@@ -141,6 +141,12 @@ const PRIMARY_ACTIONS: ReadonlyArray<{ to: QueueStatus; actionId: string; label:
   { to: QueueStatus.Done, actionId: SLACK_ACTION_IDS.itemResolved, label: '✅ Resolved' },
 ];
 
+const PRIORITY_ACTIONS: ReadonlyArray<{ priority: QueuePriority; action: string; label: string }> = [
+  { priority: QueuePriority.Red, action: SLACK_OVERFLOW_ACTIONS.priorityRed, label: '🔴 Mark Red' },
+  { priority: QueuePriority.Yellow, action: SLACK_OVERFLOW_ACTIONS.priorityYellow, label: '🟡 Mark Yellow' },
+  { priority: QueuePriority.Green, action: SLACK_OVERFLOW_ACTIONS.priorityGreen, label: '🟢 Mark Green' },
+];
+
 /** Build the per-item actions row, or null when no legal action remains. */
 export function itemActions(item: QueueItemView): ActionsBlock | null {
   const elements: Array<Button | Overflow> = [];
@@ -151,6 +157,16 @@ export function itemActions(item: QueueItemView): ActionsBlock | null {
   }
 
   const overflowOptions = [];
+  if (item.status !== QueueStatus.Archived) {
+    for (const action of PRIORITY_ACTIONS) {
+      if (item.priority !== action.priority) {
+        overflowOptions.push({
+          text: { type: 'plain_text' as const, text: action.label, emoji: true },
+          value: `${action.action}:${item.permanentQueueId}`,
+        });
+      }
+    }
+  }
   if (canTransition(item.status, QueueStatus.Done)) {
     overflowOptions.push({
       text: { type: 'plain_text' as const, text: '✅ Mark Done', emoji: true },

@@ -37,6 +37,9 @@ export const SLACK_ACTION_IDS = {
 export const SLACK_OVERFLOW_ACTIONS = {
   complete: 'complete',
   archive: 'archive',
+  priorityRed: 'priority_red',
+  priorityYellow: 'priority_yellow',
+  priorityGreen: 'priority_green',
 } as const;
 export type SlackOverflowAction =
   (typeof SLACK_OVERFLOW_ACTIONS)[keyof typeof SLACK_OVERFLOW_ACTIONS];

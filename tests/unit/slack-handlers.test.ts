@@ -12,6 +12,7 @@ jest.mock('../../src/application/queue', () => ({
     getSnoozedQueue: jest.fn(),
     getArchive: jest.fn(),
     changeStatus: jest.fn(),
+    updatePriority: jest.fn(),
     moveToWaiting: jest.fn(),
     moveToFollowUp: jest.fn(),
     snooze: jest.fn(),
@@ -37,6 +38,7 @@ import {
   registerShortcuts,
 } from '../../src/interfaces/slack/handlers/shortcuts';
 import {
+  classifyAttentionPriority,
   mentionedUserIds,
   registerMessageEvents,
 } from '../../src/interfaces/slack/handlers/message-events';
@@ -110,6 +112,18 @@ describe('applyItemAction', () => {
     expect(queueService.changeStatus).toHaveBeenCalledWith(ctx, 'MQ-1', QueueStatus.Working);
     expect(await applyItemAction(ctx, 'complete', 'MQ-1')).toBe(QueueStatus.Done);
     expect(await applyItemAction(ctx, 'archive', 'MQ-1')).toBe(QueueStatus.Archived);
+  });
+
+  it('routes priority actions through queueService.updatePriority', async () => {
+    mock(queueService.updatePriority).mockResolvedValue({ status: QueueStatus.New });
+
+    await applyItemAction(ctx, 'priority_red', 'MQ-1');
+    await applyItemAction(ctx, 'priority_yellow', 'MQ-2');
+    await applyItemAction(ctx, 'priority_green', 'MQ-3');
+
+    expect(queueService.updatePriority).toHaveBeenCalledWith(ctx, 'MQ-1', QueuePriority.Red);
+    expect(queueService.updatePriority).toHaveBeenCalledWith(ctx, 'MQ-2', QueuePriority.Yellow);
+    expect(queueService.updatePriority).toHaveBeenCalledWith(ctx, 'MQ-3', QueuePriority.Green);
   });
 
   it('snoozes with a future default duration', async () => {
@@ -284,6 +298,30 @@ describe('mentionedUserIds', () => {
   });
 });
 
+describe('classifyAttentionPriority', () => {
+  it('does not use punctuation to escalate a direct message', () => {
+    expect(classifyAttentionPriority({ type: 'message', channel_type: 'im', text: 'routine update!!!' })).toBe(
+      QueuePriority.Green,
+    );
+  });
+
+  it('classifies blocked direct-message content as Red', () => {
+    expect(
+      classifyAttentionPriority({
+        type: 'message',
+        channel_type: 'im',
+        text: "Bitty is asking for proof of ownership or they can't proceed!",
+      }),
+    ).toBe(QueuePriority.Red);
+  });
+
+  it('keeps channel mentions at least Yellow from mention context', () => {
+    expect(classifyAttentionPriority({ type: 'message', channel_type: 'channel', text: 'hello <@U1>' })).toBe(
+      QueuePriority.Yellow,
+    );
+  });
+});
+
 describe('registerMessageEvents', () => {
   type Handler = (args: unknown) => Promise<void>;
   function capture(): Handler {
@@ -349,7 +387,7 @@ describe('registerMessageEvents', () => {
         user: 'U_SENDER',
         channel: 'D1',
         ts: '1700000000.000200',
-        text: 'are you there?',
+            text: 'are you there?',
       },
       body: { event_id: 'EvDM1' },
       context: { teamId: 'T1', userId: 'UOWNER', userToken: 'xoxp-test' },
@@ -360,7 +398,7 @@ describe('registerMessageEvents', () => {
       { workspaceId: 'w1', workspaceUserId: 'sender' },
       expect.objectContaining({
         ownerWorkspaceUserId: 'owner',
-        priority: QueuePriority.Green,
+          priority: QueuePriority.Green,
         sourceSlackChannelId: 'D1',
         sourceSlackUserId: 'U_SENDER',
         sourceSlackMessageTs: '1700000000.000200',
@@ -522,6 +560,10 @@ describe('parseOverflowValue', () => {
       action: 'archive',
       permanentQueueId: 'MQ-2',
     });
+    expect(parseOverflowValue('priority_red:MQ-3')).toEqual({
+      action: 'priority_red',
+      permanentQueueId: 'MQ-3',
+    });
   });
 
   it('rejects malformed or unknown values', () => {
@@ -629,6 +671,23 @@ describe('registerActions', () => {
       respond: jest.fn(),
     });
     expect(queueService.complete).toHaveBeenCalledWith(ctx, 'MQ-1');
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a priority overflow action then re-publishes the source view', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.updatePriority).mockResolvedValue({ status: QueueStatus.New });
+    mock(queueService.getActiveQueue).mockResolvedValue([]);
+    const publish = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.itemOverflow)!({
+      ack: jest.fn(),
+      body: homeBody,
+      action: { selected_option: { value: 'priority_red:MQ-1' } },
+      client: { views: { publish } },
+      context: { teamId: 'T1' },
+      respond: jest.fn(),
+    });
+    expect(queueService.updatePriority).toHaveBeenCalledWith(ctx, 'MQ-1', QueuePriority.Red);
     expect(publish).toHaveBeenCalledTimes(1);
   });
 

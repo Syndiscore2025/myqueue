@@ -2,7 +2,7 @@ import type { App, Context } from '@slack/bolt';
 import type { WebClient } from '@slack/web-api';
 import { queueService } from '../../../application/queue';
 import { slackIdempotencyService } from '../../../application/slack';
-import { QueuePriority, QueueSourceType } from '../../../domain/queue';
+import { QueueSourceType, priorityClassificationService, type QueuePriority } from '../../../domain/queue';
 import { createLogger } from '../../../utils/logger';
 import { resolveContext } from './identity';
 
@@ -102,8 +102,11 @@ async function attentionOwnerIds(
   return [];
 }
 
-function defaultAttentionPriority(event: SlackMessageEvent): QueuePriority {
-  return isDirectMessage(event) ? QueuePriority.Green : QueuePriority.Yellow;
+export function classifyAttentionPriority(event: SlackMessageEvent): QueuePriority {
+  return priorityClassificationService.classify({
+    text: event.text ?? '',
+    mentionsOwner: !isDirectMessage(event),
+  }).priority;
 }
 
 async function getPermalink(
@@ -158,7 +161,7 @@ export async function handleMessageEvent(
     await queueService.createOrUpdateSlackAttention(senderCtx, {
       title: 'Slack attention',
       ownerWorkspaceUserId: ownerCtx.workspaceUserId,
-      priority: defaultAttentionPriority(event),
+      priority: classifyAttentionPriority(event),
       sourceType: QueueSourceType.SLACK_MESSAGE,
       sourceSlackChannelId: event.channel!,
       sourceSlackUserId: senderSlackUserId,

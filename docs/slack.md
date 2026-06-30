@@ -168,13 +168,26 @@ behavior:
 ### Marking urgency from normal Slack
 
 MyQueue cannot add a native urgency dropdown to Slack's message composer. The
-supported Slack-native controls are:
+normal Slack composer stays unchanged, and MyQueue classifies urgency from the
+message content it receives in the Events API. That text is used transiently for
+priority classification only; MyQueue still stores only the metadata pointer and
+the Slack permalink, never the message body. Punctuation alone is not a priority
+signal, so adding `!` or `?` does not escalate an otherwise normal message.
+
+The default classifier is the **MCA edition**. It understands common
+merchant-cash-advance and business-funding language such as stips, underwriting,
+bank statements, proof of ownership, voided checks, Plaid/login issues, funding
+calls, contracts, renewals, buyouts, payoffs, ACH/wire problems, and funding
+blockers. Red still means a true blocker; Yellow means attention or missing-info
+language.
+
+Supported Slack-native controls are:
 
 - Message shortcut, e.g. **Add to MyQueue** / **Mark urgent**.
 - Emoji reactions where the app has event visibility, e.g. red/yellow/green.
 - Slash commands such as `/myqueue add` or `/myqueue urgent`.
 - App Home item actions: start, waiting, follow-up, snooze, complete, archive,
-  raise/lower priority, and open original.
+  mark red/yellow/green, and open original.
 
 The sender can continue using normal Slack. The recipient uses MyQueue as the
 attention layer and jumps back to the real conversation only when needed.
@@ -204,9 +217,9 @@ Surfaces:
 | App Home dashboard  | `app_home_opened` event          | Publishes the user's ranked queue with priority/status filters. |
 | `/myqueue` command  | Slash command                    | Navigates the queue/priority/status views from any channel.     |
 | `/myqueue token`    | Slash command                    | Mints a personal HS256 API bearer token (Phase 7), shown ephemerally. |
-| Automatic capture   | Slack message events             | Creates name-only attention pointers for observable messages, currently direct mentions until admin routing rules exist. |
+| Automatic capture   | Slack message events             | Creates name-only attention pointers for observable messages and classifies priority from content without storing message text. |
 | Add to MyQueue      | Message shortcut (`message_action`) | Captures a privacy-safe reference to the message as a `SLACK_MESSAGE` item. |
-| Item actions        | Block Kit buttons / overflow     | Start, Follow Up, Waiting, Snooze, Complete, Archive, Refresh.  |
+| Item actions        | Block Kit buttons / overflow     | Start, Follow Up, Waiting, Snooze, Complete, Archive, Refresh, and Mark Red/Yellow/Green. |
 
 Per-item buttons are gated by the domain lifecycle state machine, so only legal
 transitions render. Each action re-renders its source surface in place — the App
