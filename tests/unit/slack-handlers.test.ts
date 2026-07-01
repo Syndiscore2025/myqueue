@@ -38,6 +38,7 @@ import {
   registerShortcuts,
 } from '../../src/interfaces/slack/handlers/shortcuts';
 import {
+  classifyAttention,
   classifyAttentionPriority,
   mentionedUserIds,
   registerMessageEvents,
@@ -121,9 +122,24 @@ describe('applyItemAction', () => {
     await applyItemAction(ctx, 'priority_yellow', 'MQ-2');
     await applyItemAction(ctx, 'priority_green', 'MQ-3');
 
-    expect(queueService.updatePriority).toHaveBeenCalledWith(ctx, 'MQ-1', QueuePriority.Red);
-    expect(queueService.updatePriority).toHaveBeenCalledWith(ctx, 'MQ-2', QueuePriority.Yellow);
-    expect(queueService.updatePriority).toHaveBeenCalledWith(ctx, 'MQ-3', QueuePriority.Green);
+    expect(queueService.updatePriority).toHaveBeenCalledWith(
+      ctx,
+      'MQ-1',
+      QueuePriority.Red,
+      expect.objectContaining({ reason: expect.stringContaining('corrected priority') }),
+    );
+    expect(queueService.updatePriority).toHaveBeenCalledWith(
+      ctx,
+      'MQ-2',
+      QueuePriority.Yellow,
+      expect.objectContaining({ reason: expect.stringContaining('corrected priority') }),
+    );
+    expect(queueService.updatePriority).toHaveBeenCalledWith(
+      ctx,
+      'MQ-3',
+      QueuePriority.Green,
+      expect.objectContaining({ reason: expect.stringContaining('corrected priority') }),
+    );
   });
 
   it('snoozes with a future default duration', async () => {
@@ -315,6 +331,17 @@ describe('classifyAttentionPriority', () => {
     ).toBe(QueuePriority.Red);
   });
 
+  it('returns an MCA edition reason without returning raw message text', () => {
+    const result = classifyAttention({
+      type: 'message',
+      channel_type: 'im',
+      text: "Bitty is asking for proof of ownership or they can't proceed!",
+    });
+    expect(result.priority).toBe(QueuePriority.Red);
+    expect(result.reason).toContain('MCA edition');
+    expect(result.reason).not.toContain('Bitty');
+  });
+
   it('keeps channel mentions at least Yellow from mention context', () => {
     expect(classifyAttentionPriority({ type: 'message', channel_type: 'channel', text: 'hello <@U1>' })).toBe(
       QueuePriority.Yellow,
@@ -361,6 +388,8 @@ describe('registerMessageEvents', () => {
         title: 'Slack attention',
         ownerWorkspaceUserId: 'owner',
         priority: QueuePriority.Yellow,
+        summary: expect.stringContaining('Auto priority: MCA edition'),
+        priorityReason: expect.stringContaining('MCA edition'),
         sourceType: 'SLACK_MESSAGE',
         sourceSlackChannelId: 'C1',
         sourceSlackUserId: 'U_SENDER',
@@ -399,6 +428,7 @@ describe('registerMessageEvents', () => {
       expect.objectContaining({
         ownerWorkspaceUserId: 'owner',
           priority: QueuePriority.Green,
+          summary: expect.stringContaining('Auto priority: MCA edition'),
         sourceSlackChannelId: 'D1',
         sourceSlackUserId: 'U_SENDER',
         sourceSlackMessageTs: '1700000000.000200',
@@ -564,6 +594,10 @@ describe('parseOverflowValue', () => {
       action: 'priority_red',
       permanentQueueId: 'MQ-3',
     });
+    expect(parseOverflowValue('followup_tomorrow:MQ-4')).toEqual({
+      action: 'followup_tomorrow',
+      permanentQueueId: 'MQ-4',
+    });
   });
 
   it('rejects malformed or unknown values', () => {
@@ -687,7 +721,29 @@ describe('registerActions', () => {
       context: { teamId: 'T1' },
       respond: jest.fn(),
     });
-    expect(queueService.updatePriority).toHaveBeenCalledWith(ctx, 'MQ-1', QueuePriority.Red);
+    expect(queueService.updatePriority).toHaveBeenCalledWith(
+      ctx,
+      'MQ-1',
+      QueuePriority.Red,
+      expect.objectContaining({ reason: expect.stringContaining('corrected priority') }),
+    );
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a quick follow-up overflow action then re-publishes the source view', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.moveToFollowUp).mockResolvedValue({ status: QueueStatus.FollowUp });
+    mock(queueService.getActiveQueue).mockResolvedValue([]);
+    const publish = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.itemOverflow)!({
+      ack: jest.fn(),
+      body: homeBody,
+      action: { selected_option: { value: 'followup_30m:MQ-1' } },
+      client: { views: { publish } },
+      context: { teamId: 'T1' },
+      respond: jest.fn(),
+    });
+    expect(queueService.moveToFollowUp).toHaveBeenCalledWith(ctx, 'MQ-1', expect.any(Date));
     expect(publish).toHaveBeenCalledTimes(1);
   });
 

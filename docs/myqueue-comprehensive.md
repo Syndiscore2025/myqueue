@@ -44,7 +44,8 @@ attention pointers. A pointer stores metadata such as:
 - Slack permalink;
 - priority;
 - lifecycle status;
-- grouped message count.
+- grouped message count;
+- derived classifier reason, such as `MCA edition: Urgent signals detected: ...`.
 
 It does **not** persist normal Slack message bodies for automatic capture.
 
@@ -71,7 +72,8 @@ Each queue item can expose Slack Block Kit actions for:
 - resolved/done;
 - archive;
 - open original Slack chat/message;
-- mark priority as red/yellow/green.
+- quick follow-up scheduling;
+- mark priority as red/yellow/green when MyQueue gets it wrong.
 
 ### Slash command
 
@@ -706,3 +708,94 @@ correct pattern is:
 2. store only metadata pointers;
 3. let recipients override priority in App Home;
 4. link users back to the original Slack conversation for replies.
+
+---
+
+## 16. Latest implementation changes and owner directions
+
+Latest changes added after the MCA edition baseline:
+
+- App Home includes a dashboard summary with Red/Yellow/Green, Waiting, and
+  Follow-up counts.
+- App Home includes onboarding/privacy copy explaining that MyQueue stores Slack
+  metadata pointers and classifier signals, not message bodies.
+- Automatic Slack capture stores a derived classifier reason in the item summary
+  and priority history without storing raw message text.
+- Slack burst grouping labels repeated messages as a message burst and keeps the
+  latest Slack permalink attached.
+- Item overflow menus include quick follow-up actions: 30 minutes, today,
+  tomorrow, and Monday.
+- Priority correction options explicitly act as feedback: Wrong priority? Mark
+  Red, Yellow, or Green.
+- Marketplace docs now align scope justification, data handling, and submission
+  prerequisites with Slack Marketplace review expectations.
+
+### Do you need to change anything in Slack?
+
+No new Slack scopes, events, slash commands, shortcuts, or URLs are required for
+these latest UX changes. They use the already configured App Home and
+Interactivity endpoint.
+
+Only reinstall the Slack app if the currently installed app is missing any
+previously required scopes/events:
+
+- bot scopes include `commands`, `chat:write`, `im:write`, `im:read`,
+  `users:read`, `team:read`, `channels:read`, `channels:history`, `groups:read`,
+  `groups:history`, `mpim:read`, `mpim:history`, `im:history`;
+- user scopes include `im:read`, `im:history`;
+- bot events include `app_home_opened`, `message.channels`, `message.groups`,
+  `message.mpim`, `message.im`;
+- user events include `message.im`;
+- Interactivity points to `/slack/events`;
+- `/myqueue` points to `/slack/events`;
+- App Home is enabled.
+
+If those are already set and the app was reinstalled after adding them, a code
+deploy is enough.
+
+### Slack Marketplace readiness directions
+
+Before submitting to the Slack Marketplace, complete these owner-side items:
+
+1. Confirm MyQueue is not submitted as a coded workflow app and does not request
+   workflow/coded-workflow scopes.
+2. Confirm the app is installed and active on at least 5 active workspaces, per
+   Slack's Marketplace prerequisite.
+3. Test install, onboarding, App Home, automatic capture, priority correction,
+   quick follow-up, Open chat, slash command, and uninstall on a clean workspace
+   that is not the development workspace.
+4. Prepare a short demo video showing install/OAuth, setup, end-to-end use, and
+   uninstall.
+5. Provide Slack reviewers with a way to install the app themselves; do not give
+   them credentials for a Slack workspace.
+6. Prepare test account credentials for any non-Slack web service account they
+   need to access, using dummy data.
+7. Confirm legal/support/listing links are live: privacy policy, terms, support,
+   pricing, listing copy, screenshots, and icon.
+8. Be ready for Slack's preliminary and functional review windows; do not plan a
+   launch that depends on Slack skipping review.
+
+### Marketplace constraints MyQueue currently follows
+
+- No restricted `admin.*`, `search:read`, workflow, `identity.*`, legacy `read`,
+  legacy `post`, `client`, or `triggers:*` scopes.
+- No coded workflow functionality.
+- No in-Slack financial transactions. The MCA edition classifies funding-related
+  messages for attention triage only; it does not approve, fund, transfer, or
+  execute transactions in Slack.
+- Slack privacy model is preserved: MyQueue acts only on Slack events delivered
+  to the app or authorized user and links users back to Slack for content access.
+- Message bodies are not persisted for automatic capture.
+
+### Post-deploy smoke test
+
+After deployment, test in Slack:
+
+1. Open **Apps → MyQueue** and confirm the dashboard summary/privacy text appears.
+2. Send a routine DM from a test user and confirm it creates a Green pointer.
+3. Send `Bitty is asking for proof of ownership or they can't proceed` from a test
+   user and confirm it creates a Red pointer with an MCA classifier reason.
+4. Open the item menu and test Mark Yellow/Green/Red.
+5. Open the item menu and test Follow up in 30 minutes.
+6. Click Open chat and confirm it opens the original Slack message and clears the
+   attention group.

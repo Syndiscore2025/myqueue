@@ -48,6 +48,10 @@ export type ItemAction =
   | 'working'
   | 'waiting'
   | 'followup'
+  | 'followup_30m'
+  | 'followup_today'
+  | 'followup_tomorrow'
+  | 'followup_monday'
   | 'snooze'
   | 'complete'
   | 'archive'
@@ -81,6 +85,14 @@ export async function applyItemAction(
       return (await queueService.moveToWaiting(ctx, permanentQueueId)).status;
     case 'followup':
       return (await queueService.moveToFollowUp(ctx, permanentQueueId)).status;
+    case 'followup_30m':
+      return (await queueService.moveToFollowUp(ctx, permanentQueueId, minutesFromNow(30))).status;
+    case 'followup_today':
+      return (await queueService.moveToFollowUp(ctx, permanentQueueId, todayOrTomorrowAt(17))).status;
+    case 'followup_tomorrow':
+      return (await queueService.moveToFollowUp(ctx, permanentQueueId, daysFromNowAt(1, 9))).status;
+    case 'followup_monday':
+      return (await queueService.moveToFollowUp(ctx, permanentQueueId, nextMondayAt(9))).status;
     case 'snooze': {
       const until = new Date(Date.now() + SLACK_DEFAULT_SNOOZE_MINUTES * 60_000);
       return (await queueService.snooze(ctx, permanentQueueId, until)).status;
@@ -90,10 +102,37 @@ export async function applyItemAction(
     case 'archive':
       return (await queueService.archive(ctx, permanentQueueId)).status;
     case 'priority_red':
-      return (await queueService.updatePriority(ctx, permanentQueueId, QueuePriority.Red)).status;
+      return (await queueService.updatePriority(ctx, permanentQueueId, QueuePriority.Red, priorityCorrectionReason)).status;
     case 'priority_yellow':
-      return (await queueService.updatePriority(ctx, permanentQueueId, QueuePriority.Yellow)).status;
+      return (await queueService.updatePriority(ctx, permanentQueueId, QueuePriority.Yellow, priorityCorrectionReason)).status;
     case 'priority_green':
-      return (await queueService.updatePriority(ctx, permanentQueueId, QueuePriority.Green)).status;
+      return (await queueService.updatePriority(ctx, permanentQueueId, QueuePriority.Green, priorityCorrectionReason)).status;
   }
+}
+
+const priorityCorrectionReason = { reason: 'Slack recipient corrected priority from App Home' } as const;
+
+function minutesFromNow(minutes: number): Date {
+  return new Date(Date.now() + minutes * 60_000);
+}
+
+function daysFromNowAt(days: number, hour: number): Date {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(hour, 0, 0, 0);
+  return date;
+}
+
+function todayOrTomorrowAt(hour: number): Date {
+  const date = daysFromNowAt(0, hour);
+  return date.getTime() > Date.now() ? date : daysFromNowAt(1, hour);
+}
+
+function nextMondayAt(hour: number): Date {
+  const date = new Date();
+  const day = date.getDay();
+  const daysUntilMonday = day === 1 ? 7 : (8 - day) % 7;
+  date.setDate(date.getDate() + daysUntilMonday);
+  date.setHours(hour, 0, 0, 0);
+  return date;
 }

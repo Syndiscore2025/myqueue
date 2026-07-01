@@ -40,6 +40,8 @@ export interface QueueContext {
 export interface CreateItemInput {
   title: string;
   summary?: string | null;
+  /** Optional derived classifier explanation. Never store raw Slack message text here. */
+  priorityReason?: string | null;
   ownerWorkspaceUserId?: string;
   priority?: QueuePriority;
   sourceType?: QueueSourceType;
@@ -191,6 +193,16 @@ export class QueueService {
         toPriority: priority,
         source: 'auto-classification',
         reason: classification.reason,
+        automatic: true,
+        actorWorkspaceUserId: ctx.workspaceUserId,
+      });
+    } else if (input.priorityReason !== undefined && input.priorityReason !== null) {
+      await this.history.recordPriorityChange({
+        workspaceId: ctx.workspaceId,
+        queueItemId: item.id,
+        toPriority: priority,
+        source: 'auto-classification',
+        reason: input.priorityReason,
         automatic: true,
         actorWorkspaceUserId: ctx.workspaceUserId,
       });

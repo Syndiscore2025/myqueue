@@ -181,13 +181,14 @@ calls, contracts, renewals, buyouts, payoffs, ACH/wire problems, and funding
 blockers. Red still means a true blocker; Yellow means attention or missing-info
 language.
 
-Supported Slack-native controls are:
+Supported Slack-native controls are limited to functionality that is implemented
+and testable for Marketplace review:
 
-- Message shortcut, e.g. **Add to MyQueue** / **Mark urgent**.
-- Emoji reactions where the app has event visibility, e.g. red/yellow/green.
-- Slash commands such as `/myqueue add` or `/myqueue urgent`.
+- Automatic priority classification from observable Slack message events.
+- Message shortcut **Add to MyQueue** for manual capture.
+- Slash command `/myqueue` for queue navigation and `/myqueue token` for API token minting.
 - App Home item actions: start, waiting, follow-up, snooze, complete, archive,
-  mark red/yellow/green, and open original.
+  quick follow-up scheduling, mark red/yellow/green, and open original.
 
 The sender can continue using normal Slack. The recipient uses MyQueue as the
 attention layer and jumps back to the real conversation only when needed.

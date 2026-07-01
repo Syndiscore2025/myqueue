@@ -1,4 +1,5 @@
 import type { ActionsBlock, Button, HomeView, KnownBlock, ModalView } from '@slack/types';
+import { QueuePriority, QueueStatus } from '../../../domain/queue';
 import { QueueView, SLACK_ACTION_IDS } from '../constants';
 import {
   context,
@@ -73,13 +74,34 @@ function navBlocks(current: QueueView): ActionsBlock[] {
   ];
 }
 
+function dashboardSummary(items: readonly QueueItemView[]): KnownBlock[] {
+  const red = items.filter((item) => item.priority === QueuePriority.Red).length;
+  const yellow = items.filter((item) => item.priority === QueuePriority.Yellow).length;
+  const green = items.filter((item) => item.priority === QueuePriority.Green).length;
+  const waiting = items.filter((item) => item.status === QueueStatus.Waiting).length;
+  const followUp = items.filter((item) => item.status === QueueStatus.FollowUp).length;
+  return [
+    context(
+      `Today: 🔴 ${red} Red · 🟡 ${yellow} Yellow · 🟢 ${green} Green · ⏳ ${waiting} Waiting · 🔁 ${followUp} Follow-up`,
+    ),
+    section(
+      '*Private by default.* MyQueue stores Slack metadata pointers and classifier signals, not message bodies. The MCA edition classifies priority; use each item menu if it gets priority wrong.',
+    ),
+  ];
+}
+
 /**
  * Build the Block Kit blocks for a queue view: a header, the navigation rows,
  * and either an empty-state line or the listed items. Archived items render
  * read-only; every other view exposes per-item action buttons.
  */
 export function buildQueueBlocks(view: QueueView, items: readonly QueueItemView[]): KnownBlock[] {
-  const blocks: KnownBlock[] = [header(VIEW_TITLES[view]), ...navBlocks(view), divider()];
+  const blocks: KnownBlock[] = [
+    header(VIEW_TITLES[view]),
+    ...navBlocks(view),
+    ...dashboardSummary(items),
+    divider(),
+  ];
   if (items.length === 0) {
     blocks.push(section(EMPTY_TEXT[view]));
     return blocks;

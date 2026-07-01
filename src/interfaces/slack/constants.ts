@@ -40,6 +40,10 @@ export const SLACK_OVERFLOW_ACTIONS = {
   priorityRed: 'priority_red',
   priorityYellow: 'priority_yellow',
   priorityGreen: 'priority_green',
+  followUp30m: 'followup_30m',
+  followUpToday: 'followup_today',
+  followUpTomorrow: 'followup_tomorrow',
+  followUpMonday: 'followup_monday',
 } as const;
 export type SlackOverflowAction =
   (typeof SLACK_OVERFLOW_ACTIONS)[keyof typeof SLACK_OVERFLOW_ACTIONS];

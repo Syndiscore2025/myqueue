@@ -142,9 +142,16 @@ const PRIMARY_ACTIONS: ReadonlyArray<{ to: QueueStatus; actionId: string; label:
 ];
 
 const PRIORITY_ACTIONS: ReadonlyArray<{ priority: QueuePriority; action: string; label: string }> = [
-  { priority: QueuePriority.Red, action: SLACK_OVERFLOW_ACTIONS.priorityRed, label: '🔴 Mark Red' },
-  { priority: QueuePriority.Yellow, action: SLACK_OVERFLOW_ACTIONS.priorityYellow, label: '🟡 Mark Yellow' },
-  { priority: QueuePriority.Green, action: SLACK_OVERFLOW_ACTIONS.priorityGreen, label: '🟢 Mark Green' },
+  { priority: QueuePriority.Red, action: SLACK_OVERFLOW_ACTIONS.priorityRed, label: 'Wrong priority? 🔴 Mark Red' },
+  { priority: QueuePriority.Yellow, action: SLACK_OVERFLOW_ACTIONS.priorityYellow, label: 'Wrong priority? 🟡 Mark Yellow' },
+  { priority: QueuePriority.Green, action: SLACK_OVERFLOW_ACTIONS.priorityGreen, label: 'Wrong priority? 🟢 Mark Green' },
+];
+
+const FOLLOW_UP_ACTIONS: ReadonlyArray<{ action: string; label: string }> = [
+  { action: SLACK_OVERFLOW_ACTIONS.followUp30m, label: '🔁 Follow up in 30 min' },
+  { action: SLACK_OVERFLOW_ACTIONS.followUpToday, label: '🔁 Follow up today' },
+  { action: SLACK_OVERFLOW_ACTIONS.followUpTomorrow, label: '🔁 Follow up tomorrow' },
+  { action: SLACK_OVERFLOW_ACTIONS.followUpMonday, label: '🔁 Follow up Monday' },
 ];
 
 /** Build the per-item actions row, or null when no legal action remains. */
@@ -165,6 +172,12 @@ export function itemActions(item: QueueItemView): ActionsBlock | null {
           value: `${action.action}:${item.permanentQueueId}`,
         });
       }
+    }
+    for (const action of FOLLOW_UP_ACTIONS) {
+      overflowOptions.push({
+        text: { type: 'plain_text' as const, text: action.label, emoji: true },
+        value: `${action.action}:${item.permanentQueueId}`,
+      });
     }
   }
   if (canTransition(item.status, QueueStatus.Done)) {
@@ -207,7 +220,7 @@ export function itemBlocks(
   const sourceParts = [user, source].filter((part): part is string => part !== null);
   const sourceMeta = sourceParts.length === 0 ? '' : ` · Source ${sourceParts.join(' in ')}`;
   const count = item.sourceSlackMessageCount ?? 1;
-  const countMeta = count > 1 ? ` · ${count} messages` : '';
+  const countMeta = count > 1 ? ` · ${count}-message burst · latest linked` : '';
   const meta = `\`${item.permanentQueueId}\` · ${PRIORITY_EMOJI[item.priority]} ${item.priority} · ${STATUS_LABEL[item.status]}${countMeta}${sourceMeta}`;
   const blocks: KnownBlock[] = [
     section(`${PRIORITY_EMOJI[item.priority]} ${titleText}${summary}`),

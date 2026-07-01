@@ -72,6 +72,10 @@ describe('itemActions', () => {
     expect(overflow.options.map((o) => o.value)).toEqual([
       `${SLACK_OVERFLOW_ACTIONS.priorityRed}:MQ-42`,
       `${SLACK_OVERFLOW_ACTIONS.priorityYellow}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.followUp30m}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.followUpToday}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.followUpTomorrow}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.followUpMonday}:MQ-42`,
       `${SLACK_OVERFLOW_ACTIONS.complete}:MQ-42`,
       `${SLACK_OVERFLOW_ACTIONS.archive}:MQ-42`,
     ]);
@@ -119,7 +123,7 @@ describe('itemBlocks', () => {
 
   it('shows a burst message count without showing message text', () => {
     const blocks = itemBlocks(makeItem({ sourceSlackMessageCount: 3 }));
-    expect(JSON.stringify(blocks[1])).toContain('3 messages');
+    expect(JSON.stringify(blocks[1])).toContain('3-message burst');
   });
 
   it('does not render arbitrary external URLs as Open chat buttons', () => {
@@ -129,15 +133,30 @@ describe('itemBlocks', () => {
 });
 
 describe('buildQueueBlocks', () => {
-  it('renders header, two nav rows, divider, and an empty state when there are no items', () => {
+  it('renders header, nav rows, dashboard guidance, divider, and empty state when there are no items', () => {
     const blocks = buildQueueBlocks(QueueView.All, []);
     expect(blocks.map((b) => b.type)).toEqual([
       'header',
       'actions',
       'actions',
+      'context',
+      'section',
       'divider',
       'section',
     ]);
+  });
+
+  it('shows dashboard priority/status counts and privacy guidance', () => {
+    const blocks = buildQueueBlocks(QueueView.All, [
+      makeItem({ priority: QueuePriority.Red }),
+      makeItem({ priority: QueuePriority.Yellow, status: QueueStatus.FollowUp }),
+      makeItem({ priority: QueuePriority.Green, status: QueueStatus.Waiting }),
+    ]);
+    const json = JSON.stringify(blocks);
+    expect(json).toContain('🔴 1 Red');
+    expect(json).toContain('🟡 1 Yellow');
+    expect(json).toContain('🟢 1 Green');
+    expect(json).toContain('Private by default');
   });
 
   it('marks the active view nav button with primary styling', () => {

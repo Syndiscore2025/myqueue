@@ -2,7 +2,12 @@ import type { App, Context } from '@slack/bolt';
 import type { WebClient } from '@slack/web-api';
 import { queueService } from '../../../application/queue';
 import { slackIdempotencyService } from '../../../application/slack';
-import { QueueSourceType, priorityClassificationService, type QueuePriority } from '../../../domain/queue';
+import {
+  PRIORITY_CLASSIFIER_EDITION,
+  QueueSourceType,
+  priorityClassificationService,
+  type QueuePriority,
+} from '../../../domain/queue';
 import { createLogger } from '../../../utils/logger';
 import { resolveContext } from './identity';
 
@@ -102,11 +107,19 @@ async function attentionOwnerIds(
   return [];
 }
 
-export function classifyAttentionPriority(event: SlackMessageEvent): QueuePriority {
-  return priorityClassificationService.classify({
+export function classifyAttention(event: SlackMessageEvent): { priority: QueuePriority; reason: string } {
+  const classification = priorityClassificationService.classify({
     text: event.text ?? '',
     mentionsOwner: !isDirectMessage(event),
-  }).priority;
+  });
+  return {
+    priority: classification.priority,
+    reason: `${PRIORITY_CLASSIFIER_EDITION}: ${classification.reason}`,
+  };
+}
+
+export function classifyAttentionPriority(event: SlackMessageEvent): QueuePriority {
+  return classifyAttention(event).priority;
 }
 
 async function getPermalink(
@@ -158,10 +171,13 @@ export async function handleMessageEvent(
     if (ownerCtx.workspaceId !== senderCtx.workspaceId) {
       continue;
     }
+    const classification = classifyAttention(event);
     await queueService.createOrUpdateSlackAttention(senderCtx, {
       title: 'Slack attention',
+      summary: `Auto priority: ${classification.reason}`,
+      priorityReason: classification.reason,
       ownerWorkspaceUserId: ownerCtx.workspaceUserId,
-      priority: classifyAttentionPriority(event),
+      priority: classification.priority,
       sourceType: QueueSourceType.SLACK_MESSAGE,
       sourceSlackChannelId: event.channel!,
       sourceSlackUserId: senderSlackUserId,
