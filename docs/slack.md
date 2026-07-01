@@ -31,16 +31,21 @@ Store it as `SLACK_STATE_SECRET`.
 ## 2. Scopes
 
 Scopes are requested at install time and configured via env (CSV), so they can
-change without code edits. The defaults are the minimal, Marketplace-friendly
-set:
+change without code edits. The defaults support App Home, commands,
+notifications, and automatic attention-pointer capture from Slack conversations
+the app is allowed to observe:
 
 ```
-SLACK_BOT_SCOPES=commands,chat:write,im:write,users:read,team:read
-SLACK_USER_SCOPES=
+SLACK_BOT_SCOPES=commands,chat:write,im:write,im:read,users:read,team:read,channels:read,channels:history,groups:read,groups:history,mpim:read,mpim:history,im:history
+SLACK_USER_SCOPES=im:read,im:history
 ```
 
-`im:write` is added in Phase 5 so the notifier can open a DM channel
-(`conversations.open`) before posting; `chat:write` covers the message itself.
+`im:write` lets the notifier open a DM channel (`conversations.open`) before
+posting; `chat:write` covers the message itself. The `*:history` scopes let
+Slack deliver Events API message notifications where the app or installing user
+has conversation visibility. MyQueue uses those events to store only attention
+metadata — sender/channel ids, timestamp, priority, and a Slack link — never the
+message body.
 
 Set the **same** bot scopes under **OAuth & Permissions → Scopes → Bot Token
 Scopes** in the portal so the consent screen matches.
@@ -63,6 +68,8 @@ Configure them in the portal:
 - **Event Subscriptions → Request URL**: set
   `https://YOUR_DOMAIN/slack/events`. Slack sends a one-time `url_verification`
   challenge, which the receiver answers automatically.
+- **Subscribe to bot events**: add `app_home_opened`, `message.channels`,
+  `message.groups`, `message.mpim`, and `message.im`.
 
 > For local development, expose your machine with a tunnel (e.g. ngrok) and use
 > the HTTPS tunnel URL as `APP_BASE_URL`.
@@ -105,6 +112,105 @@ interface adapters (`src/interfaces/slack`) that resolve a verified Slack
 identity to a tenant-scoped `QueueContext` and delegate to the existing queue
 application services; no business logic lives in the Slack layer.
 
+### Product model: one personal command center
+
+MyQueue is a private, per-user command center inside Slack. Users should be able
+to keep the MyQueue App Home open all day and work from one ranked queue instead
+of hunting through channels, DMs, threads, and reminders. MyQueue is not a shared
+chat room: conversations stay in the original Slack DM/channel/thread, while
+MyQueue tracks attention, priority, lifecycle state, and the next best item to
+work.
+
+Slack apps cannot decorate or reorder Slack's native left sidebar, add colored
+queue indicators next to DM names, or inject controls into the message composer.
+The Slack-compliant version of the experience is therefore:
+
+- MyQueue App Home is the primary working surface.
+- Proactive DMs/reminders bring the user back when important queue state changes.
+- Slash commands, message shortcuts, reactions, and App Home buttons provide fast
+  controls without turning MyQueue into a conversation channel.
+- Every Slack-originated item links back to the original Slack place when the
+  user needs to reply.
+- Automatic Slack message capture creates attention pointers only: who/where,
+  priority, status, timestamp, and Open chat. It does not copy message text.
+- Repeated messages from the same sender in the same observable Slack
+  conversation/thread within five minutes update one pointer's message count;
+  they do not create multiple queue rows.
+
+### Queue ordering and lifecycle behavior
+
+Queue order is dynamic. If a user works an item out of order, MyQueue should mark
+that item with the appropriate lifecycle state (`Working`, `Waiting`, `Follow
+Up`, `Snoozed`, `Done`, etc.) and recompute the ranked queue so the next best
+item moves into the highest available position. Slot #1 may represent the current
+active conversation/call; priority overrides normally jump to the highest waiting
+slot beneath that active item.
+
+Priority and status are separate concepts:
+
+- **Status** describes workflow state: new, working, waiting, follow-up,
+  snoozed, done, archived.
+- **Priority** describes attention level: urgent/red, important/yellow,
+  normal/green, low/FYI.
+
+Role-based priority overrides should be modeled as ranking rules, not as chat
+behavior:
+
+| Sender/context | Queue behavior |
+| -------------- | -------------- |
+| CEO or executive | Jump to the highest waiting slot, typically #2. |
+| Sales manager | Jump to the highest waiting slot for users on their team. |
+| Team lead | Jump above normal team items, but not above sales manager/executive items. |
+| Normal direct message | Rank by normal priority/order rules. |
+| Company-wide/lender/general channel message | Default to low/non-urgent unless directly assigned. |
+| Direct `@user` mention in a broad channel | Elevate to yellow/important. |
+
+### Marking urgency from normal Slack
+
+MyQueue cannot add a native urgency dropdown to Slack's message composer. The
+normal Slack composer stays unchanged, and MyQueue classifies urgency from the
+message content it receives in the Events API. That text is used transiently for
+priority classification only; MyQueue still stores only the metadata pointer and
+the Slack permalink, never the message body. Punctuation alone is not a priority
+signal, so adding `!` or `?` does not escalate an otherwise normal message.
+
+The default classifier is the **MCA edition**. It understands common
+merchant-cash-advance and business-funding language such as stips, underwriting,
+bank statements, proof of ownership, voided checks, Plaid/login issues, funding
+calls, contracts, renewals, buyouts, payoffs, ACH/wire problems, and funding
+blockers. Red still means a true blocker; Yellow means attention or missing-info
+language.
+
+Supported Slack-native controls are limited to functionality that is implemented
+and testable for Marketplace review:
+
+- Automatic priority classification from observable Slack message events.
+- Message shortcut **Add to MyQueue** for manual capture.
+- Slash command `/myqueue` for queue navigation and `/myqueue token` for API token minting.
+- App Home item actions: start, waiting, follow-up, snooze, complete, archive,
+  quick follow-up scheduling, mark red/yellow/green, and open original.
+
+The sender can continue using normal Slack. The recipient uses MyQueue as the
+attention layer and jumps back to the real conversation only when needed.
+
+### Opening the original chat from MyQueue
+
+Every queue item created from Slack should expose an obvious **Open in Slack** /
+**Open chat** action. The preferred target is the original message permalink so
+the user lands in the exact DM/channel/thread that created the item. When a
+message permalink is not available, render Slack-native identifiers that Slack
+makes clickable, such as `<@USER_ID>` for a person or `<#CHANNEL_ID>` for a
+channel, and use Slack app redirect/deep links where a channel or DM id is known.
+
+The rule is: MyQueue shows the ranked work list, but replies happen in the
+original Slack conversation.
+
+Opening a Slack-sourced pointer is treated as handling that attention group: all
+active pointers for the same owner/sender/channel/thread are marked done so they
+leave the active queue. If the issue is resolved elsewhere (for example by a call
+to a manager or CEO), the recipient can also use **Resolved** to remove the item
+from their active queue without opening the chat.
+
 Surfaces:
 
 | Surface             | Trigger                          | What it does                                              |
@@ -112,8 +218,9 @@ Surfaces:
 | App Home dashboard  | `app_home_opened` event          | Publishes the user's ranked queue with priority/status filters. |
 | `/myqueue` command  | Slash command                    | Navigates the queue/priority/status views from any channel.     |
 | `/myqueue token`    | Slash command                    | Mints a personal HS256 API bearer token (Phase 7), shown ephemerally. |
+| Automatic capture   | Slack message events             | Creates name-only attention pointers for observable messages and classifies priority from content without storing message text. |
 | Add to MyQueue      | Message shortcut (`message_action`) | Captures a privacy-safe reference to the message as a `SLACK_MESSAGE` item. |
-| Item actions        | Block Kit buttons / overflow     | Start, Follow Up, Waiting, Snooze, Complete, Archive, Refresh.  |
+| Item actions        | Block Kit buttons / overflow     | Start, Follow Up, Waiting, Snooze, Complete, Archive, Refresh, and Mark Red/Yellow/Green. |
 
 Per-item buttons are gated by the domain lifecycle state machine, so only legal
 transitions render. Each action re-renders its source surface in place — the App

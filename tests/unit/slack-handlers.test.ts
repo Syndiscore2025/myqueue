@@ -3,6 +3,8 @@ import type { App } from '@slack/bolt';
 jest.mock('../../src/application/queue', () => ({
   queueService: {
     createItem: jest.fn(),
+    createOrUpdateSlackAttention: jest.fn(),
+    completeSlackAttentionGroup: jest.fn(),
     getActiveQueue: jest.fn(),
     getWorkingQueue: jest.fn(),
     getFollowUpQueue: jest.fn(),
@@ -10,6 +12,7 @@ jest.mock('../../src/application/queue', () => ({
     getSnoozedQueue: jest.fn(),
     getArchive: jest.fn(),
     changeStatus: jest.fn(),
+    updatePriority: jest.fn(),
     moveToWaiting: jest.fn(),
     moveToFollowUp: jest.fn(),
     snooze: jest.fn(),
@@ -34,6 +37,12 @@ import {
   buildMessageTitle,
   registerShortcuts,
 } from '../../src/interfaces/slack/handlers/shortcuts';
+import {
+  classifyAttention,
+  classifyAttentionPriority,
+  mentionedUserIds,
+  registerMessageEvents,
+} from '../../src/interfaces/slack/handlers/message-events';
 import {
   parseOverflowValue,
   registerActions,
@@ -92,6 +101,7 @@ describe('applyItemAction', () => {
   it('maps primary action ids to item actions', () => {
     expect(ACTION_ID_TO_ITEM_ACTION[SLACK_ACTION_IDS.itemWorking]).toBe('working');
     expect(ACTION_ID_TO_ITEM_ACTION[SLACK_ACTION_IDS.itemSnooze]).toBe('snooze');
+    expect(ACTION_ID_TO_ITEM_ACTION[SLACK_ACTION_IDS.itemResolved]).toBe('complete');
   });
 
   it('routes each action through the matching service method', async () => {
@@ -103,6 +113,33 @@ describe('applyItemAction', () => {
     expect(queueService.changeStatus).toHaveBeenCalledWith(ctx, 'MQ-1', QueueStatus.Working);
     expect(await applyItemAction(ctx, 'complete', 'MQ-1')).toBe(QueueStatus.Done);
     expect(await applyItemAction(ctx, 'archive', 'MQ-1')).toBe(QueueStatus.Archived);
+  });
+
+  it('routes priority actions through queueService.updatePriority', async () => {
+    mock(queueService.updatePriority).mockResolvedValue({ status: QueueStatus.New });
+
+    await applyItemAction(ctx, 'priority_red', 'MQ-1');
+    await applyItemAction(ctx, 'priority_yellow', 'MQ-2');
+    await applyItemAction(ctx, 'priority_green', 'MQ-3');
+
+    expect(queueService.updatePriority).toHaveBeenCalledWith(
+      ctx,
+      'MQ-1',
+      QueuePriority.Red,
+      expect.objectContaining({ reason: expect.stringContaining('corrected priority') }),
+    );
+    expect(queueService.updatePriority).toHaveBeenCalledWith(
+      ctx,
+      'MQ-2',
+      QueuePriority.Yellow,
+      expect.objectContaining({ reason: expect.stringContaining('corrected priority') }),
+    );
+    expect(queueService.updatePriority).toHaveBeenCalledWith(
+      ctx,
+      'MQ-3',
+      QueuePriority.Green,
+      expect.objectContaining({ reason: expect.stringContaining('corrected priority') }),
+    );
   });
 
   it('snoozes with a future default duration', async () => {
@@ -271,6 +308,166 @@ describe('buildMessagePermalink', () => {
   });
 });
 
+describe('mentionedUserIds', () => {
+  it('extracts unique Slack user mentions from mrkdwn', () => {
+    expect(mentionedUserIds('hi <@U1> and <@U2|Sarah> and <@U1>')).toEqual(['U1', 'U2']);
+  });
+});
+
+describe('classifyAttentionPriority', () => {
+  it('does not use punctuation to escalate a direct message', () => {
+    expect(classifyAttentionPriority({ type: 'message', channel_type: 'im', text: 'routine update!!!' })).toBe(
+      QueuePriority.Green,
+    );
+  });
+
+  it('classifies blocked direct-message content as Red', () => {
+    expect(
+      classifyAttentionPriority({
+        type: 'message',
+        channel_type: 'im',
+        text: "Bitty is asking for proof of ownership or they can't proceed!",
+      }),
+    ).toBe(QueuePriority.Red);
+  });
+
+  it('returns an MCA edition reason without returning raw message text', () => {
+    const result = classifyAttention({
+      type: 'message',
+      channel_type: 'im',
+      text: "Bitty is asking for proof of ownership or they can't proceed!",
+    });
+    expect(result.priority).toBe(QueuePriority.Red);
+    expect(result.reason).toContain('MCA edition');
+    expect(result.reason).not.toContain('Bitty');
+  });
+
+  it('keeps channel mentions at least Yellow from mention context', () => {
+    expect(classifyAttentionPriority({ type: 'message', channel_type: 'channel', text: 'hello <@U1>' })).toBe(
+      QueuePriority.Yellow,
+    );
+  });
+});
+
+describe('registerMessageEvents', () => {
+  type Handler = (args: unknown) => Promise<void>;
+  function capture(): Handler {
+    let handler: Handler | undefined;
+    const app = {
+      event: (_name: string, h: Handler) => {
+        handler = h;
+      },
+    } as unknown as App;
+    registerMessageEvents(app);
+    return handler!;
+  }
+
+  it('auto-creates a name-only attention pointer for mentioned users', async () => {
+    mock(slackIdentityService.resolveContext)
+      .mockResolvedValueOnce({ workspaceId: 'w1', workspaceUserId: 'sender' })
+      .mockResolvedValueOnce({ workspaceId: 'w1', workspaceUserId: 'owner' });
+    mock(queueService.createOrUpdateSlackAttention).mockResolvedValue(item());
+    const getPermalink = jest.fn().mockResolvedValue({
+      permalink: 'https://acme.slack.com/archives/C1/p1700000000000100',
+    });
+    await capture()({
+      event: {
+        type: 'message',
+        user: 'U_SENDER',
+        channel: 'C1',
+        ts: '1700000000.000100',
+        text: 'please review this <@UOWNER>',
+      },
+      body: { event_id: 'Ev1' },
+      context: { teamId: 'T1' },
+      client: { chat: { getPermalink } },
+    });
+    expect(queueService.createOrUpdateSlackAttention).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workspaceUserId: 'sender' },
+      expect.objectContaining({
+        title: 'Slack attention',
+        ownerWorkspaceUserId: 'owner',
+        priority: QueuePriority.Yellow,
+        summary: expect.stringContaining('Auto priority: MCA edition'),
+        priorityReason: expect.stringContaining('MCA edition'),
+        sourceType: 'SLACK_MESSAGE',
+        sourceSlackChannelId: 'C1',
+        sourceSlackUserId: 'U_SENDER',
+        sourceSlackMessageTs: '1700000000.000100',
+        sourceSlackPermalink: 'https://acme.slack.com/archives/C1/p1700000000000100',
+      }),
+      300000,
+    );
+  });
+
+  it('auto-creates a name-only attention pointer for direct messages without mentions', async () => {
+    mock(slackIdentityService.resolveContext)
+      .mockResolvedValueOnce({ workspaceId: 'w1', workspaceUserId: 'sender' })
+      .mockResolvedValueOnce({ workspaceId: 'w1', workspaceUserId: 'owner' });
+    mock(queueService.createOrUpdateSlackAttention).mockResolvedValue(item());
+    const members = jest.fn().mockResolvedValue({ members: ['U_SENDER', 'UOWNER'] });
+    const getPermalink = jest.fn().mockResolvedValue({
+      permalink: 'https://acme.slack.com/archives/D1/p1700000000000200',
+    });
+    await capture()({
+      event: {
+        type: 'message',
+        channel_type: 'im',
+        user: 'U_SENDER',
+        channel: 'D1',
+        ts: '1700000000.000200',
+            text: 'are you there?',
+      },
+      body: { event_id: 'EvDM1' },
+      context: { teamId: 'T1', userId: 'UOWNER', userToken: 'xoxp-test' },
+      client: { conversations: { members }, chat: { getPermalink } },
+    });
+    expect(members).toHaveBeenCalledWith({ channel: 'D1', token: 'xoxp-test' });
+    expect(queueService.createOrUpdateSlackAttention).toHaveBeenCalledWith(
+      { workspaceId: 'w1', workspaceUserId: 'sender' },
+      expect.objectContaining({
+        ownerWorkspaceUserId: 'owner',
+          priority: QueuePriority.Green,
+          summary: expect.stringContaining('Auto priority: MCA edition'),
+        sourceSlackChannelId: 'D1',
+        sourceSlackUserId: 'U_SENDER',
+        sourceSlackMessageTs: '1700000000.000200',
+        sourceSlackPermalink: 'https://acme.slack.com/archives/D1/p1700000000000200',
+      }),
+      300000,
+    );
+  });
+
+  it('does not create a direct-message pointer for someone other than the authorized user', async () => {
+    const members = jest.fn().mockResolvedValue({ members: ['U_SENDER', 'U_OTHER'] });
+    await capture()({
+      event: {
+        type: 'message',
+        channel_type: 'im',
+        user: 'U_SENDER',
+        channel: 'D1',
+        ts: '1700000000.000300',
+        text: 'outbound message',
+      },
+      body: { event_id: 'EvDM2' },
+      context: { teamId: 'T1', userId: 'U_AUTHORIZED', userToken: 'xoxp-test' },
+      client: { conversations: { members }, chat: { getPermalink: jest.fn() } },
+    });
+    expect(queueService.createOrUpdateSlackAttention).not.toHaveBeenCalled();
+  });
+
+  it('ignores non-mentioned channel messages because routing rules are not known yet', async () => {
+    await capture()({
+      event: { type: 'message', user: 'U1', channel: 'C1', ts: '1.0', text: 'hello team' },
+      body: { event_id: 'Ev2' },
+      context: { teamId: 'T1' },
+      client: { chat: { getPermalink: jest.fn() } },
+    });
+    expect(queueService.createItem).not.toHaveBeenCalled();
+    expect(queueService.createOrUpdateSlackAttention).not.toHaveBeenCalled();
+  });
+});
+
 describe('registerShortcuts', () => {
   type Handler = (args: unknown) => Promise<void>;
   function capture(): Handler {
@@ -291,7 +488,7 @@ describe('registerShortcuts', () => {
     user: { id: 'U1' },
     channel: { id: 'C1', name: 'general' },
     team: { id: 'T1', domain: 'acme' },
-    message: { ts: '1700000000.000100', text: 'Ship the release' },
+    message: { ts: '1700000000.000100', user: 'U2', text: 'Ship the release' },
     ...over,
   });
 
@@ -312,6 +509,7 @@ describe('registerShortcuts', () => {
       summary?: unknown;
       title: string;
       sourceSlackChannelId: string;
+      sourceSlackUserId: string | null;
       sourceSlackMessageTs: string;
       sourceSlackThreadTs: string | null;
       sourceSlackPermalink: string;
@@ -321,6 +519,7 @@ describe('registerShortcuts', () => {
     expect(created.summary).toBeUndefined();
     expect(created.title).toBe('Slack message in #general');
     expect(created.sourceSlackChannelId).toBe('C1');
+    expect(created.sourceSlackUserId).toBe('U2');
     expect(created.sourceSlackMessageTs).toBe('1700000000.000100');
     expect(created.sourceSlackThreadTs).toBeNull();
     expect(created.sourceSlackPermalink).toBe(
@@ -390,6 +589,14 @@ describe('parseOverflowValue', () => {
     expect(parseOverflowValue('archive:MQ-2')).toEqual({
       action: 'archive',
       permanentQueueId: 'MQ-2',
+    });
+    expect(parseOverflowValue('priority_red:MQ-3')).toEqual({
+      action: 'priority_red',
+      permanentQueueId: 'MQ-3',
+    });
+    expect(parseOverflowValue('followup_tomorrow:MQ-4')).toEqual({
+      action: 'followup_tomorrow',
+      permanentQueueId: 'MQ-4',
     });
   });
 
@@ -465,6 +672,25 @@ describe('registerActions', () => {
     expect(publish).toHaveBeenCalledTimes(1);
   });
 
+  it('clears the Slack attention group when Open chat is clicked', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.completeSlackAttentionGroup).mockResolvedValue(2);
+    mock(queueService.getActiveQueue).mockResolvedValue([]);
+    const ack = jest.fn();
+    const publish = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.itemOpenChat)!({
+      ack,
+      body: homeBody,
+      action: { value: 'MQ-1' },
+      client: { views: { publish } },
+      context: { teamId: 'T1' },
+      respond: jest.fn(),
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(queueService.completeSlackAttentionGroup).toHaveBeenCalledWith(ctx, 'MQ-1');
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
   it('applies an overflow action from its encoded value', async () => {
     mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
     mock(queueService.complete).mockResolvedValue({ status: QueueStatus.Done });
@@ -479,6 +705,45 @@ describe('registerActions', () => {
       respond: jest.fn(),
     });
     expect(queueService.complete).toHaveBeenCalledWith(ctx, 'MQ-1');
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a priority overflow action then re-publishes the source view', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.updatePriority).mockResolvedValue({ status: QueueStatus.New });
+    mock(queueService.getActiveQueue).mockResolvedValue([]);
+    const publish = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.itemOverflow)!({
+      ack: jest.fn(),
+      body: homeBody,
+      action: { selected_option: { value: 'priority_red:MQ-1' } },
+      client: { views: { publish } },
+      context: { teamId: 'T1' },
+      respond: jest.fn(),
+    });
+    expect(queueService.updatePriority).toHaveBeenCalledWith(
+      ctx,
+      'MQ-1',
+      QueuePriority.Red,
+      expect.objectContaining({ reason: expect.stringContaining('corrected priority') }),
+    );
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a quick follow-up overflow action then re-publishes the source view', async () => {
+    mock(slackIdentityService.resolveContext).mockResolvedValue(ctx);
+    mock(queueService.moveToFollowUp).mockResolvedValue({ status: QueueStatus.FollowUp });
+    mock(queueService.getActiveQueue).mockResolvedValue([]);
+    const publish = jest.fn();
+    await capture().get(SLACK_ACTION_IDS.itemOverflow)!({
+      ack: jest.fn(),
+      body: homeBody,
+      action: { selected_option: { value: 'followup_30m:MQ-1' } },
+      client: { views: { publish } },
+      context: { teamId: 'T1' },
+      respond: jest.fn(),
+    });
+    expect(queueService.moveToFollowUp).toHaveBeenCalledWith(ctx, 'MQ-1', expect.any(Date));
     expect(publish).toHaveBeenCalledTimes(1);
   });
 

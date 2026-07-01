@@ -1,5 +1,6 @@
 import type { App, ButtonAction, Context, OverflowAction, RespondFn } from '@slack/bolt';
 import type { WebClient } from '@slack/web-api';
+import { queueService } from '../../../application/queue';
 import { createLogger } from '../../../utils/logger';
 import {
   QueueView,
@@ -52,10 +53,14 @@ export function parseOverflowValue(
   if (permanentQueueId.length === 0) {
     return null;
   }
-  if (action === SLACK_OVERFLOW_ACTIONS.complete || action === SLACK_OVERFLOW_ACTIONS.archive) {
+  if (isSlackOverflowAction(action)) {
     return { action, permanentQueueId };
   }
   return null;
+}
+
+function isSlackOverflowAction(value: string): value is SlackOverflowAction {
+  return (Object.values(SLACK_OVERFLOW_ACTIONS) as string[]).includes(value);
 }
 
 /**
@@ -131,6 +136,20 @@ export function registerActions(app: App): void {
   };
   app.action(SLACK_ACTION_IDS.selectView, navigate);
   app.action(SLACK_ACTION_IDS.refresh, navigate);
+  app.action(SLACK_ACTION_IDS.itemOpenChat, async ({ ack, body, client, context, respond, action }: ActionArgs) => {
+    await ack();
+    const value = (action as ButtonAction).value;
+    if (value === undefined) {
+      return;
+    }
+    try {
+      const ctx = await resolveContext(context, body.user.id);
+      await queueService.completeSlackAttentionGroup(ctx, value);
+      await rerender(client, context, body, respond, sourceView(body));
+    } catch (error) {
+      log.error({ err: error, user: body.user.id, item: value }, 'failed to clear opened Slack attention group');
+    }
+  });
 
   for (const [actionId, itemAction] of Object.entries(ACTION_ID_TO_ITEM_ACTION)) {
     app.action(actionId, async ({ ack, body, client, context, respond, action }: ActionArgs) => {

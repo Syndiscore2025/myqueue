@@ -2,6 +2,7 @@ import type { App } from '@slack/bolt';
 import { registerActions } from './handlers/actions';
 import { registerAppHome } from './handlers/app-home';
 import { registerCommands } from './handlers/commands';
+import { registerMessageEvents } from './handlers/message-events';
 import { registerShortcuts } from './handlers/shortcuts';
 
 /**
@@ -23,6 +24,7 @@ export function registerSlackHandlers(app: App): void {
   registered.add(app);
 
   registerAppHome(app);
+  registerMessageEvents(app);
   registerCommands(app);
   registerShortcuts(app);
   registerActions(app);

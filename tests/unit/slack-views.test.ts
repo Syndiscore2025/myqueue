@@ -49,7 +49,7 @@ describe('itemActions', () => {
     const block = itemActions(makeItem({ status: QueueStatus.New }));
     expect(block).not.toBeNull();
     const ids = block!.elements.map((e) => e.type);
-    expect(ids).toEqual(['button', 'button', 'button', 'button', 'overflow']);
+    expect(ids).toEqual(['button', 'button', 'button', 'button', 'button', 'overflow']);
     expect(block!.block_id).toBe('mq_item:MQ-000001');
   });
 
@@ -70,6 +70,12 @@ describe('itemActions', () => {
       options: Array<{ value: string }>;
     };
     expect(overflow.options.map((o) => o.value)).toEqual([
+      `${SLACK_OVERFLOW_ACTIONS.priorityRed}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.priorityYellow}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.followUp30m}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.followUpToday}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.followUpTomorrow}:MQ-42`,
+      `${SLACK_OVERFLOW_ACTIONS.followUpMonday}:MQ-42`,
       `${SLACK_OVERFLOW_ACTIONS.complete}:MQ-42`,
       `${SLACK_OVERFLOW_ACTIONS.archive}:MQ-42`,
     ]);
@@ -100,18 +106,57 @@ describe('itemBlocks', () => {
     const [sectionBlock] = itemBlocks(makeItem({ title: '<b>x</b>' }));
     expect(JSON.stringify(sectionBlock)).toContain('&lt;b&gt;x&lt;/b&gt;');
   });
+
+  it('links Slack-sourced items back to the original chat/message', () => {
+    const blocks = itemBlocks(
+      makeItem({
+        sourceSlackChannelId: 'C123ABC',
+        sourceSlackUserId: 'U123ABC',
+        sourceSlackPermalink: 'https://acme.slack.com/archives/C123ABC/p1700000000000100',
+      }),
+    );
+    expect(JSON.stringify(blocks[0])).toContain('<@U123ABC>');
+    expect(JSON.stringify(blocks[1])).toContain('<#C123ABC>');
+    expect(JSON.stringify(blocks[1])).toContain('<@U123ABC>');
+    expect(blocks.map((b) => b.type)).toEqual(['section', 'context', 'actions']);
+  });
+
+  it('shows a burst message count without showing message text', () => {
+    const blocks = itemBlocks(makeItem({ sourceSlackMessageCount: 3 }));
+    expect(JSON.stringify(blocks[1])).toContain('3-message burst');
+  });
+
+  it('does not render arbitrary external URLs as Open chat buttons', () => {
+    const blocks = itemBlocks(makeItem({ sourceSlackPermalink: 'https://example.com/phish' }));
+    expect(blocks.map((b) => b.type)).toEqual(['section', 'context']);
+  });
 });
 
 describe('buildQueueBlocks', () => {
-  it('renders header, two nav rows, divider, and an empty state when there are no items', () => {
+  it('renders header, nav rows, dashboard guidance, divider, and empty state when there are no items', () => {
     const blocks = buildQueueBlocks(QueueView.All, []);
     expect(blocks.map((b) => b.type)).toEqual([
       'header',
       'actions',
       'actions',
+      'context',
+      'section',
       'divider',
       'section',
     ]);
+  });
+
+  it('shows dashboard priority/status counts and privacy guidance', () => {
+    const blocks = buildQueueBlocks(QueueView.All, [
+      makeItem({ priority: QueuePriority.Red }),
+      makeItem({ priority: QueuePriority.Yellow, status: QueueStatus.FollowUp }),
+      makeItem({ priority: QueuePriority.Green, status: QueueStatus.Waiting }),
+    ]);
+    const json = JSON.stringify(blocks);
+    expect(json).toContain('🔴 1 Red');
+    expect(json).toContain('🟡 1 Yellow');
+    expect(json).toContain('🟢 1 Green');
+    expect(json).toContain('Private by default');
   });
 
   it('marks the active view nav button with primary styling', () => {

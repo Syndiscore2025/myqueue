@@ -21,3 +21,32 @@ export class InvalidQueueStatusTransitionError extends ApplicationError {
     this.to = to;
   }
 }
+
+/**
+ * Raised when adding a dependency edge would introduce a cycle in the
+ * depends-on graph (including a self-dependency). Modeled as a 409 conflict
+ * because the request conflicts with the graph's acyclic invariant rather than
+ * being malformed.
+ */
+export class DependencyCycleError extends ApplicationError {
+  readonly statusCode = 409;
+  readonly code = 'DEPENDENCY_CYCLE';
+  readonly permanentQueueId: string;
+  readonly dependsOnPermanentQueueId: string;
+
+  constructor(
+    permanentQueueId: string,
+    dependsOnPermanentQueueId: string,
+    options: ApplicationErrorOptions = {},
+  ) {
+    super(
+      `Adding a dependency from "${permanentQueueId}" on "${dependsOnPermanentQueueId}" would create a cycle`,
+      {
+        ...options,
+        details: options.details ?? { permanentQueueId, dependsOnPermanentQueueId },
+      },
+    );
+    this.permanentQueueId = permanentQueueId;
+    this.dependsOnPermanentQueueId = dependsOnPermanentQueueId;
+  }
+}

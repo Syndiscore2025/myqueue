@@ -1,0 +1,122 @@
+# Render Blueprint for MyQueue.
+#
+# Deploys the application services:
+#   - API web service (Docker) with pre-deploy schema migrations
+#   - background worker (Docker)
+#
+# The managed datastores (Postgres "myqueue-db" and Key Value "myqueue-cache")
+# are provisioned separately and referenced by name via fromDatabase /
+# fromService, so no connection strings are handled by hand. Secrets are
+# declared `sync: false` on myqueue-api (no values committed) and prompted for
+# once at Blueprint creation; the worker reads the same values via fromService
+# references. Deploy: dashboard > New > Blueprint.
+
+services:
+  # ----- API (HTTP) -----------------------------------------------------------
+  - type: web
+    name: myqueue-api
+    runtime: docker
+    region: virginia
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /ready
+    # Apply schema migrations before the new version receives traffic.
+    preDeployCommand: npx prisma migrate deploy
+    domains:
+      - app.myqueue.syndiscore.com
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_BASE_URL
+        value: https://app.myqueue.syndiscore.com
+      - key: CORS_ORIGINS
+        value: https://app.myqueue.syndiscore.com
+      - key: TRUST_PROXY
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        fromDatabase:
+          name: myqueue-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: myqueue-cache
+          property: connectionString
+      # Secrets entered once in the dashboard at Blueprint creation. The worker
+      # reads these same values via fromService references below, so each is
+      # entered a single time on this service.
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: AUTH_TOKEN_SECRET
+        sync: false
+      - key: SLACK_CLIENT_ID
+        sync: false
+      - key: SLACK_CLIENT_SECRET
+        sync: false
+      - key: SLACK_SIGNING_SECRET
+        sync: false
+      - key: SLACK_STATE_SECRET
+        sync: false
+
+  # ----- Background worker (BullMQ + scheduler loops) -------------------------
+  - type: worker
+    name: myqueue-worker
+    runtime: docker
+    region: virginia
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    # Override the image's API entrypoint with the worker process.
+    dockerCommand: node dist/workers/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # The shared env schema requires APP_BASE_URL for every process, even the
+      # worker (which serves no HTTP). Mirror the API's value so it boots.
+      - key: APP_BASE_URL
+        value: https://app.myqueue.syndiscore.com
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        fromDatabase:
+          name: myqueue-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: myqueue-cache
+          property: connectionString
+      # In production the env schema requires the Slack credentials,
+      # AUTH_TOKEN_SECRET and ENCRYPTION_KEY for EVERY process. Rather than
+      # re-entering them, the worker reads the values entered on myqueue-api.
+      - key: ENCRYPTION_KEY
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: ENCRYPTION_KEY
+      - key: AUTH_TOKEN_SECRET
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: AUTH_TOKEN_SECRET
+      - key: SLACK_CLIENT_ID
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: SLACK_CLIENT_ID
+      - key: SLACK_CLIENT_SECRET
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: SLACK_CLIENT_SECRET
+      - key: SLACK_SIGNING_SECRET
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: SLACK_SIGNING_SECRET
+      - key: SLACK_STATE_SECRET
+        fromService:
+          type: web
+          name: myqueue-api
+          envVarKey: SLACK_STATE_SECRET

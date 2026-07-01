@@ -25,6 +25,13 @@ Docker packaging, a full test suite, and CI/CD:
   snooze wake-ups, follow-up reminders, and a daily digest — gated by
   per-workspace preferences and deduped so retries never double-send (see
   [docs/slack.md](docs/slack.md)).
+- **Phase 6** — billing & subscriptions: Stripe integration with Free/Pro/Business
+  tiers, entitlement enforcement, usage analytics, and webhook processing.
+- **Phase 7** — API authentication: HS256 bearer tokens minted from verified Slack
+  identity via `/myqueue token`, enabling external integrations.
+- **Phase 8** — Marketplace readiness: comprehensive documentation, security/performance
+  audits, deployment guides, legal templates, and a complete Slack app manifest
+  (see [slack-app-manifest.yaml](slack-app-manifest.yaml)).
 
 ## Tech stack
 
@@ -87,16 +94,43 @@ This starts the API, a background worker, PostgreSQL, and Redis. See
 
 ## Documentation
 
+### Overview & development
+
 - [Getting Started](docs/getting-started.md)
+- [MyQueue Product Report](docs/myqueue-report.md)
 - [Architecture Overview](docs/architecture.md)
 - [Queue Engine (Phases 3A & 3B)](docs/queue-engine.md)
 - [Slack App Setup & Experience (Phases 2 & 4)](docs/slack.md)
 - [Local Development Guide](docs/local-development.md)
-- [Docker Guide](docs/docker.md)
-- [Deployment & Operations Guide](docs/deployment.md)
 - [Environment Guide](docs/environment.md)
 - [Testing Guide](docs/testing.md)
 - [Folder Structure Guide](docs/folder-structure.md)
+
+### Guides
+
+- [Installation Guide](docs/installation.md)
+- [User Guide](docs/user-guide.md)
+- [Admin Guide](docs/admin-guide.md)
+
+### Deployment & operations
+
+- [Docker Guide](docs/docker.md)
+- [Deployment & Operations Guide](docs/deployment.md)
+- [DigitalOcean Deployment Guide](docs/digitalocean-deployment.md)
+- [Monitoring & Alerting](docs/monitoring-and-alerting.md)
+- [Disaster Recovery Plan](docs/disaster-recovery.md)
+
+### Marketplace readiness, legal & audits
+
+- [Slack Marketplace Readiness](docs/marketplace-readiness.md)
+- [Privacy Policy (template)](docs/privacy-policy.md)
+- [Terms of Service (template)](docs/terms-of-service.md)
+- [Compliance Checklist](docs/compliance-checklist.md)
+- [Security Audit](docs/security-audit.md)
+- [Performance Results](docs/performance-results.md)
+- [API Review](docs/api-review.md)
+- [Accessibility Audit](docs/accessibility-audit.md)
+- [Release Checklist](docs/release-checklist.md)
 
 ## License
 

@@ -422,37 +422,59 @@ targets build clean.
 9. ✅ ~~**Docker optimization.**~~ Done (`73537ec`).
 10. ✅ ~~**Deployment guides & rollback procedures.**~~ Done (`d4dfa28`).
 
-**Phase 7 is complete.** Next is Phase 8 (Marketplace Readiness).
+**Phase 7 is complete.** Phase 8 (Marketplace Readiness) is the documentation
+and launch-readiness phase — branch `feat/phase-8-marketplace-readiness`, stacked
+on Phase 7.
 
-### Phase 8 — Marketplace Readiness
+### Phase 8 — Marketplace Readiness 🔄 In progress (docs complete)
 
 **Goal:** Be ready to ship.
 
-Deliverables:
+All deliverables are grounded in the codebase; items needing business/legal input
+are flagged inside each doc with `[BUSINESS]` / `[COUNSEL]` placeholders.
 
-- Slack Marketplace checklist.
-- Privacy policy checklist.
-- Terms of service checklist.
-- OAuth review.
-- Slack scope review.
-- Branding assets checklist.
-- README updates.
-- Architecture docs.
-- Installation docs.
-- Admin guide.
-- User guide.
-- Release checklist.
-- comprehensive MyQueue report.md
-- Digital Ocean Deployment Guide.md - Webapp or droplet?
-- API documentation review.
-- Security audit report.
-- Performance testing results.
-- Backup and recovery plan documentation.
-- Monitoring and alerting setup guide.
-- Final legal compliance check.
-- Disaster recovery plan.
-- Accessibility compliance audit.
-- Load balancing configuration review
+| Commit | Slice | Deliverables |
+| --- | --- | --- |
+| `9a1e2d5` | 1 — Product report | `docs/myqueue-report.md` |
+| `78a1b23` | 2 — Guides | `docs/installation.md`, `docs/user-guide.md`, `docs/admin-guide.md` |
+| `c0ed34f` | 3 — Marketplace | `docs/marketplace-readiness.md` (OAuth + scope + branding) |
+| `73e08b3` | 4 — Legal | `docs/privacy-policy.md`, `docs/terms-of-service.md`, `docs/compliance-checklist.md` |
+| `0d60f22` | 5 — Deploy/ops | `docs/digitalocean-deployment.md`, `docs/monitoring-and-alerting.md`, `docs/disaster-recovery.md` |
+| `5009eab` | 6 — Audits | `docs/security-audit.md`, `docs/performance-results.md`, `docs/api-review.md`, `docs/accessibility-audit.md` |
+| (this slice) | 7 — Release | `docs/release-checklist.md`, README doc list, this update |
+
+Deliverables (struck through = delivered):
+
+- ✅ ~~Comprehensive MyQueue report.~~ `docs/myqueue-report.md`
+- ✅ ~~Installation docs.~~ `docs/installation.md`
+- ✅ ~~User guide.~~ `docs/user-guide.md`
+- ✅ ~~Admin guide.~~ `docs/admin-guide.md`
+- ✅ ~~Slack Marketplace checklist.~~ `docs/marketplace-readiness.md`
+- ✅ ~~OAuth review.~~ `docs/marketplace-readiness.md` §1
+- ✅ ~~Slack scope review.~~ `docs/marketplace-readiness.md` §2
+- ✅ ~~Branding assets checklist.~~ `docs/marketplace-readiness.md` §4 **[BUSINESS]**
+- ✅ ~~Privacy policy checklist.~~ `docs/privacy-policy.md` **[COUNSEL]**
+- ✅ ~~Terms of service checklist.~~ `docs/terms-of-service.md` **[COUNSEL]**
+- ✅ ~~Final legal compliance check.~~ `docs/compliance-checklist.md` **[COUNSEL]**
+- ✅ ~~Digital Ocean Deployment Guide (Webapp or droplet?).~~
+  `docs/digitalocean-deployment.md` — both options documented; **[DECISION]** which.
+- ✅ ~~Monitoring and alerting setup guide.~~ `docs/monitoring-and-alerting.md`
+- ✅ ~~Backup and recovery plan documentation.~~ `docs/disaster-recovery.md`
+- ✅ ~~Disaster recovery plan.~~ `docs/disaster-recovery.md`
+- ✅ ~~Load balancing configuration review.~~ `docs/disaster-recovery.md` §Load-balancing
+- ✅ ~~Security audit report.~~ `docs/security-audit.md`
+- ✅ ~~Performance testing results.~~ `docs/performance-results.md`
+- ✅ ~~API documentation review.~~ `docs/api-review.md`
+- ✅ ~~Accessibility compliance audit.~~ `docs/accessibility-audit.md`
+- ✅ ~~Release checklist.~~ `docs/release-checklist.md`
+- ✅ ~~README updates.~~ Documentation list expanded with all Phase 8 docs.
+- Architecture docs — existing `docs/architecture.md` (current; no change needed).
+
+**Remaining before public launch (business/legal, not engineering):** fill the
+`[BUSINESS]`/`[COUNSEL]` placeholders (legal entity/contact/jurisdiction, branding
+assets, production domain, DigitalOcean target), then work the go/no-go gate in
+`docs/release-checklist.md`.
+
 ---
 
 ## 12. Missing / recommended follow-ups
@@ -483,25 +505,43 @@ These are the main items worth addressing before public production launch:
    and `testing` were refreshed with the Phase 3B/3C APIs and the CI gate;
    operational guidance now lives in `docs/deployment.md` (Phase 7 Slice 10,
    `d4dfa28`).
-7. **Circular dependency protection.** Confirm dependency creation rejects cycles
-   with tests; if missing, add it before exposing dependency APIs broadly.
+7. ✅ ~~**Circular dependency protection.**~~ _Addressed in Phase 8._
+   `QueueDependencyRepository.addEdge()` now rejects self-dependencies and any edge
+   that would close a cycle — it walks the existing workspace-scoped depends-on
+   graph from the upstream item and throws `DependencyCycleError` (409,
+   `DEPENDENCY_CYCLE`) if the dependent is reachable. Missing items now raise a
+   proper `NotFoundError` (404). Covered by unit tests in
+   `tests/unit/repositories.test.ts` (happy path, self-dependency, direct cycle,
+   transitive multi-hop cycle, not-found).
 8. ✅ ~~**Rate-limit behavior under concurrency.**~~ _Addressed in Phase 7 Slice 7
    (`bfa1aa4`)._ A concurrent integration test proves a full bucket gates parallel
    claims and reopens once capacity frees.
 9. ✅ ~~**Operational runbooks.**~~ _Addressed in Phase 7 Slice 10 (`d4dfa28`)._
    `docs/deployment.md` adds runbooks for worker stalls, recurring-rule failures,
    DLQ growth, migration failures, and Slack API outages, plus deploy/rollback.
-10. **Secrets management.** Ensure no Slack, Stripe, database, or signing secrets are
-    exposed to client code, logs, command arguments, or generated documentation.
-11. **Marketplace legal/docs.** Privacy policy, terms, data retention, deletion, and
-    customer support flows should be drafted before Phase 8 review.
-12. **Notification preference management.** Phase 5 reads the per-workspace
-    notification preferences but exposes no user-facing way to change them; add a
-    settings surface (App Home/API) to toggle them and set `dailyDigestHourUtc`.
-13. **Digest scheduling robustness.** The digest fires when `dailyDigestHourUtc`
-    equals the current UTC hour; consider per-user timezones/DST and add gated
-    integration tests proving the per-workspace/owner/day idempotency key holds
-    across overlapping sweeps.
+10. ✅ ~~**Secrets management.**~~ _Addressed across Phases 7–8._ Pino redacts
+    `Authorization`/`cookie`/`x-slack-signature` headers and `token`/`secret`/
+    `botToken`/`clientSecret`/`signingSecret`/`encryptionKey` fields
+    (`src/utils/logger.ts`); Slack tokens are AES-256-GCM at rest, config is
+    validated at boot, and no raw tokens or Stripe ids are echoed to clients.
+    Documented in `docs/security-audit.md` and `docs/compliance-checklist.md`.
+    _Remaining (business): define a secret-rotation procedure/cadence._
+11. ✅ ~~**Marketplace legal/docs.**~~ _Addressed in Phase 8 Slice 4._
+    `docs/privacy-policy.md`, `docs/terms-of-service.md`, and
+    `docs/compliance-checklist.md` cover data collection, retention, deletion, and
+    support flows. _Remaining (counsel): fill the `[COUNSEL]` placeholders._
+12. 🟡 **Notification preference management.** _Partially addressed (Phase 6)._
+    `PATCH /api/v1/workspace/settings` now exposes every preference
+    (`notifyOnAssignment`, `notifyOnSnoozeWake`, `notifyOnFollowUpDue`,
+    `dailyDigestEnabled`, `dailyDigestHourUtc`) via
+    `updateWorkspaceSettingsSchema`. _Remaining: an in-Slack **App Home** toggle
+    UI; today it is API-only._
+13. 🟡 **Digest scheduling robustness.** _Partially addressed._ The idempotency
+    half is done: a gated integration test (`tests/integration/notifications.test.ts`)
+    plus unit tests prove the per-workspace/owner/day key holds across sweeps.
+    _Remaining: `DigestService.digestBatch` still fires on
+    `dailyDigestHourUtc === now.getUTCHours()` (UTC-only) — add per-user
+    timezone/DST handling._
 14. ✅ ~~**Notification delivery observability.**~~ _Addressed in Phase 7 Slice 4
     (`250eb62`)._ Redis-backed DM-failure metrics record per-reason counters wired into
     `SlackNotifier`'s failure paths.

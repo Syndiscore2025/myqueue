@@ -27,9 +27,11 @@ export interface CreateQueueItemInput {
   priority?: QueuePriority;
   sourceType?: QueueSourceType;
   sourceSlackChannelId?: string | null;
+  sourceSlackUserId?: string | null;
   sourceSlackMessageTs?: string | null;
   sourceSlackThreadTs?: string | null;
   sourceSlackPermalink?: string | null;
+  sourceSlackMessageCount?: number;
   rankingTimestamp?: Date;
   /** Phase 3C — links a spawned item back to its recurrence rule. */
   recurrenceRuleId?: string | null;
@@ -50,6 +52,9 @@ export interface QueueItemUpdate {
   archivedAt?: Date | null;
   /** Phase 3C — single claim gate. Null clears the gate; future date delays claiming. */
   availableAt?: Date | null;
+  sourceSlackMessageTs?: string | null;
+  sourceSlackPermalink?: string | null;
+  sourceSlackMessageCount?: number;
   /** Phase 3C — delay expiry timestamp, co-set with availableAt when a delay is applied. */
   delayUntil?: Date | null;
   /** Phase 3C — user-specified calendar time at which the item becomes claimable. */
@@ -264,9 +269,11 @@ export class QueueItemRepository {
           priority: input.priority ?? QueuePriority.Green,
           sourceType: input.sourceType ?? QueueSourceType.MANUAL,
           sourceSlackChannelId: input.sourceSlackChannelId ?? null,
+          sourceSlackUserId: input.sourceSlackUserId ?? null,
           sourceSlackMessageTs: input.sourceSlackMessageTs ?? null,
           sourceSlackThreadTs: input.sourceSlackThreadTs ?? null,
           sourceSlackPermalink: input.sourceSlackPermalink ?? null,
+          sourceSlackMessageCount: input.sourceSlackMessageCount ?? 1,
           ...(input.rankingTimestamp === undefined
             ? {}
             : { rankingTimestamp: input.rankingTimestamp }),

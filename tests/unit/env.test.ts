@@ -82,10 +82,18 @@ describe('environment validation', () => {
       'commands',
       'chat:write',
       'im:write',
+      'im:read',
       'users:read',
       'team:read',
+      'channels:read',
+      'channels:history',
+      'groups:read',
+      'groups:history',
+      'mpim:read',
+      'mpim:history',
+      'im:history',
     ]);
-    expect(env.SLACK_USER_SCOPES).toEqual([]);
+    expect(env.SLACK_USER_SCOPES).toEqual(['im:read', 'im:history']);
   });
 
   it('reports Slack as unconfigured without credentials and configured with them', () => {

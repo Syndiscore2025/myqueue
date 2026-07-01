@@ -28,6 +28,8 @@ export const SLACK_ACTION_IDS = {
   itemWaiting: 'mq_item_waiting',
   itemFollowUp: 'mq_item_followup',
   itemSnooze: 'mq_item_snooze',
+  itemResolved: 'mq_item_resolved',
+  itemOpenChat: 'mq_item_open_chat',
   itemOverflow: 'mq_item_overflow',
 } as const;
 
@@ -35,6 +37,13 @@ export const SLACK_ACTION_IDS = {
 export const SLACK_OVERFLOW_ACTIONS = {
   complete: 'complete',
   archive: 'archive',
+  priorityRed: 'priority_red',
+  priorityYellow: 'priority_yellow',
+  priorityGreen: 'priority_green',
+  followUp30m: 'followup_30m',
+  followUpToday: 'followup_today',
+  followUpTomorrow: 'followup_tomorrow',
+  followUpMonday: 'followup_monday',
 } as const;
 export type SlackOverflowAction =
   (typeof SLACK_OVERFLOW_ACTIONS)[keyof typeof SLACK_OVERFLOW_ACTIONS];

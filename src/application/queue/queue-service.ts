@@ -40,6 +40,8 @@ export interface QueueContext {
 export interface CreateItemInput {
   title: string;
   summary?: string | null;
+  /** Optional derived classifier explanation. Never store raw Slack message text here. */
+  priorityReason?: string | null;
   ownerWorkspaceUserId?: string;
   priority?: QueuePriority;
   sourceType?: QueueSourceType;
@@ -48,9 +50,19 @@ export interface CreateItemInput {
    * pointers (channel/message/thread ids and a permalink), never the message body.
    */
   sourceSlackChannelId?: string | null;
+  sourceSlackUserId?: string | null;
   sourceSlackMessageTs?: string | null;
   sourceSlackThreadTs?: string | null;
   sourceSlackPermalink?: string | null;
+  sourceSlackMessageCount?: number;
+}
+
+export interface SlackAttentionInput extends CreateItemInput {
+  ownerWorkspaceUserId: string;
+  sourceSlackChannelId: string;
+  sourceSlackUserId: string;
+  sourceSlackMessageTs: string;
+  sourceSlackThreadTs?: string | null;
 }
 
 /** Optional side-data for a status change (e.g. snooze/follow-up timing). */
@@ -155,9 +167,11 @@ export class QueueService {
       priority,
       ...(input.sourceType === undefined ? {} : { sourceType: input.sourceType }),
       sourceSlackChannelId: input.sourceSlackChannelId ?? null,
+      sourceSlackUserId: input.sourceSlackUserId ?? null,
       sourceSlackMessageTs: input.sourceSlackMessageTs ?? null,
       sourceSlackThreadTs: input.sourceSlackThreadTs ?? null,
       sourceSlackPermalink: input.sourceSlackPermalink ?? null,
+      sourceSlackMessageCount: input.sourceSlackMessageCount ?? 1,
     });
     await this.events.record({
       workspaceId: ctx.workspaceId,
@@ -182,8 +196,70 @@ export class QueueService {
         automatic: true,
         actorWorkspaceUserId: ctx.workspaceUserId,
       });
+    } else if (input.priorityReason !== undefined && input.priorityReason !== null) {
+      await this.history.recordPriorityChange({
+        workspaceId: ctx.workspaceId,
+        queueItemId: item.id,
+        toPriority: priority,
+        source: 'auto-classification',
+        reason: input.priorityReason,
+        automatic: true,
+        actorWorkspaceUserId: ctx.workspaceUserId,
+      });
     }
     return item;
+  }
+
+  /**
+   * Create or update a Slack attention pointer. Messages from the same sender in
+   * the same Slack conversation/thread within `windowMs` increment one queue item
+   * instead of spamming the owner with duplicates.
+   */
+  async createOrUpdateSlackAttention(
+    ctx: QueueContext,
+    input: SlackAttentionInput,
+    windowMs: number,
+    now: Date = new Date(),
+  ): Promise<QueueItem> {
+    const existing = await this.findRecentSlackAttention(ctx, input, windowMs, now);
+    if (existing !== null) {
+      const updated = await this.applyUpdate(ctx, existing.id, {
+        sourceSlackMessageTs: input.sourceSlackMessageTs,
+        sourceSlackPermalink: input.sourceSlackPermalink ?? existing.sourceSlackPermalink,
+        sourceSlackMessageCount: existing.sourceSlackMessageCount + 1,
+      });
+      await this.events.record({
+        workspaceId: ctx.workspaceId,
+        queueItemId: existing.id,
+        actorWorkspaceUserId: ctx.workspaceUserId,
+        eventType: QueueEventType.RECALCULATED,
+        previousValue: String(existing.sourceSlackMessageCount),
+        newValue: String(updated.sourceSlackMessageCount),
+      });
+      return updated;
+    }
+    return this.createItem(ctx, input);
+  }
+
+  /** Mark every active Slack attention pointer for the same source conversation done. */
+  async completeSlackAttentionGroup(ctx: QueueContext, permanentQueueId: string): Promise<number> {
+    const anchor = await this.requireItem(ctx, permanentQueueId);
+    const siblings = await this.items.listByOwner(ctx.workspaceId, anchor.ownerWorkspaceUserId, {
+      statuses: [
+        QueueStatus.New,
+        QueueStatus.Working,
+        QueueStatus.Waiting,
+        QueueStatus.FollowUp,
+        QueueStatus.Snoozed,
+      ],
+    });
+    const group = siblings.filter((item) => this.sameSlackAttentionGroup(anchor, item));
+    for (const item of group) {
+      if (item.status !== QueueStatus.Done) {
+        await this.changeStatus(ctx, item.permanentQueueId, QueueStatus.Done);
+      }
+    }
+    return group.length;
   }
 
   /** Resolve an item by permanent id within the workspace, or throw 404. */
@@ -538,6 +614,44 @@ export class QueueService {
       throw new NotFoundError(`Queue item "${permanentQueueId}" not found in this workspace`);
     }
     return item;
+  }
+
+  private async findRecentSlackAttention(
+    ctx: QueueContext,
+    input: SlackAttentionInput,
+    windowMs: number,
+    now: Date,
+  ): Promise<QueueItem | null> {
+    const cutoff = now.getTime() - windowMs;
+    const active = await this.items.listByOwner(ctx.workspaceId, input.ownerWorkspaceUserId, {
+      statuses: [
+        QueueStatus.New,
+        QueueStatus.Working,
+        QueueStatus.Waiting,
+        QueueStatus.FollowUp,
+        QueueStatus.Snoozed,
+      ],
+    });
+    return (
+      active.find(
+        (item) =>
+          item.sourceType === input.sourceType &&
+          item.sourceSlackChannelId === input.sourceSlackChannelId &&
+          item.sourceSlackUserId === input.sourceSlackUserId &&
+          item.sourceSlackThreadTs === (input.sourceSlackThreadTs ?? null) &&
+          item.updatedAt.getTime() >= cutoff,
+      ) ?? null
+    );
+  }
+
+  private sameSlackAttentionGroup(anchor: QueueItem, item: QueueItem): boolean {
+    return (
+      (item.id !== anchor.id || item.status !== QueueStatus.Done) &&
+      item.sourceType === anchor.sourceType &&
+      item.sourceSlackChannelId === anchor.sourceSlackChannelId &&
+      item.sourceSlackUserId === anchor.sourceSlackUserId &&
+      item.sourceSlackThreadTs === anchor.sourceSlackThreadTs
+    );
   }
 
   /** Apply a scoped update, treating a missing row as a 404 (lost the race). */

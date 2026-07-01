@@ -338,9 +338,11 @@ model QueueItem {
   creatorWorkspaceUserId String?         @map("creator_workspace_user_id")
   sourceType             QueueSourceType @default(MANUAL) @map("source_type")
   sourceSlackChannelId   String?         @map("source_slack_channel_id")
+  sourceSlackUserId      String?         @map("source_slack_user_id")
   sourceSlackMessageTs   String?         @map("source_slack_message_ts")
   sourceSlackThreadTs    String?         @map("source_slack_thread_ts")
   sourceSlackPermalink   String?         @map("source_slack_permalink")
+  sourceSlackMessageCount Int            @default(1) @map("source_slack_message_count")
   title                  String
   summary                String?
   status                 QueueStatus     @default(New)

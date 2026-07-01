@@ -11,7 +11,14 @@ import {
 import { WorkspaceQueueSettingsRepository } from '../../src/infrastructure/repositories/workspace-queue-settings-repository';
 import { QueueEventRepository } from '../../src/infrastructure/repositories/queue-event-repository';
 import { QueueHistoryRepository } from '../../src/infrastructure/repositories/queue-history-repository';
-import { QueueEventType, QueuePriority, QueueStatus } from '../../src/domain/queue';
+import { QueueDependencyRepository } from '../../src/infrastructure/repositories/queue-dependency-repository';
+import { NotFoundError } from '../../src/domain/errors';
+import {
+  DependencyCycleError,
+  QueueEventType,
+  QueuePriority,
+  QueueStatus,
+} from '../../src/domain/queue';
 
 const KEY = 'a'.repeat(64);
 
@@ -30,6 +37,7 @@ interface PrismaMock {
   queueStatusHistory: { create: Fn; findMany: Fn };
   queuePriorityHistory: { create: Fn; findMany: Fn };
   queueAssignment: { create: Fn; findMany: Fn };
+  queueDependency: { create: Fn; findMany: Fn };
   $transaction: Fn;
 }
 
@@ -59,6 +67,7 @@ function mockPrisma(): PrismaMock {
     queueStatusHistory: { create: jest.fn(), findMany: jest.fn() },
     queuePriorityHistory: { create: jest.fn(), findMany: jest.fn() },
     queueAssignment: { create: jest.fn(), findMany: jest.fn() },
+    queueDependency: { create: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn(),
   };
   // By default run a transaction callback against the mock itself (tx === prisma).
@@ -350,5 +359,101 @@ describe('QueueHistoryRepository', () => {
     expect(data.workspaceId).toBe('w1');
     expect(data.ownerWorkspaceUserId).toBe('u2');
     expect(data.previousOwnerWorkspaceUserId).toBeNull();
+  });
+});
+
+describe('QueueDependencyRepository.addEdge', () => {
+  /** Resolve the dependent then the upstream item id (Promise.all call order). */
+  function resolveItems(prisma: PrismaMock, dependentId: string, upstreamId: unknown): void {
+    prisma.queueItem.findFirst.mockResolvedValueOnce({ id: dependentId });
+    prisma.queueItem.findFirst.mockResolvedValueOnce(upstreamId);
+  }
+
+  it('creates an edge when no cycle is formed', async () => {
+    const prisma = mockPrisma();
+    resolveItems(prisma, 'A', { id: 'B' });
+    prisma.queueDependency.findMany.mockResolvedValue([]); // B depends on nothing
+    prisma.queueDependency.create.mockResolvedValue({ id: 'edge1' });
+    const repo = new QueueDependencyRepository(prisma as unknown as PrismaClient);
+
+    const edge = await repo.addEdge({
+      workspaceId: 'w1',
+      permanentQueueId: 'MQ-000001',
+      dependsOnPermanentQueueId: 'MQ-000002',
+    });
+
+    expect(edge).toEqual({ id: 'edge1' });
+    expect(prisma.queueDependency.create.mock.calls[0]![0].data).toEqual({
+      workspaceId: 'w1',
+      queueItemId: 'A',
+      dependsOnQueueItemId: 'B',
+      dependencyType: 'COMPLETE_REQUIRED',
+    });
+  });
+
+  it('rejects a self-dependency', async () => {
+    const prisma = mockPrisma();
+    resolveItems(prisma, 'A', { id: 'A' });
+    const repo = new QueueDependencyRepository(prisma as unknown as PrismaClient);
+
+    await expect(
+      repo.addEdge({
+        workspaceId: 'w1',
+        permanentQueueId: 'MQ-000001',
+        dependsOnPermanentQueueId: 'MQ-000001',
+      }),
+    ).rejects.toBeInstanceOf(DependencyCycleError);
+    expect(prisma.queueDependency.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a direct cycle (upstream already depends on dependent)', async () => {
+    const prisma = mockPrisma();
+    resolveItems(prisma, 'A', { id: 'B' });
+    // B depends on A, so A -> B would close A -> B -> A.
+    prisma.queueDependency.findMany.mockResolvedValueOnce([{ dependsOnQueueItemId: 'A' }]);
+    const repo = new QueueDependencyRepository(prisma as unknown as PrismaClient);
+
+    await expect(
+      repo.addEdge({
+        workspaceId: 'w1',
+        permanentQueueId: 'MQ-000001',
+        dependsOnPermanentQueueId: 'MQ-000002',
+      }),
+    ).rejects.toBeInstanceOf(DependencyCycleError);
+    expect(prisma.queueDependency.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a transitive cycle across multiple hops', async () => {
+    const prisma = mockPrisma();
+    resolveItems(prisma, 'A', { id: 'C' });
+    // C -> B -> A already exists, so adding A -> C closes A -> C -> B -> A.
+    prisma.queueDependency.findMany
+      .mockResolvedValueOnce([{ dependsOnQueueItemId: 'B' }])
+      .mockResolvedValueOnce([{ dependsOnQueueItemId: 'A' }]);
+    const repo = new QueueDependencyRepository(prisma as unknown as PrismaClient);
+
+    await expect(
+      repo.addEdge({
+        workspaceId: 'w1',
+        permanentQueueId: 'MQ-000001',
+        dependsOnPermanentQueueId: 'MQ-000003',
+      }),
+    ).rejects.toBeInstanceOf(DependencyCycleError);
+    expect(prisma.queueDependency.create).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundError when an item is missing', async () => {
+    const prisma = mockPrisma();
+    resolveItems(prisma, 'A', null); // upstream not found
+    const repo = new QueueDependencyRepository(prisma as unknown as PrismaClient);
+
+    await expect(
+      repo.addEdge({
+        workspaceId: 'w1',
+        permanentQueueId: 'MQ-000001',
+        dependsOnPermanentQueueId: 'MQ-000099',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(prisma.queueDependency.create).not.toHaveBeenCalled();
   });
 });

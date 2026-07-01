@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+# Thin image for the pre-deploy migration job.
+# Installs ALL dependencies (including the Prisma CLI from devDependencies) so
+# `prisma migrate deploy` is available, then runs it against the target database.
+# Intentionally separate from the production runtime image, which omits dev deps.
+
+FROM node:22-slim
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+
+# NODE_ENV must NOT be production here so npm ci installs devDependencies
+# (which include the prisma CLI).
+RUN npm ci
+
+USER node
+
+ENV NODE_ENV=production
+
+CMD ["npx", "prisma", "migrate", "deploy"]
