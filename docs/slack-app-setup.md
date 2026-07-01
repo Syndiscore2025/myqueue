@@ -5,6 +5,10 @@ Render. **Phase 2** wires Slack's portal URLs to the live production domain. You
 need the domain before Slack can verify event/interactivity URLs, so we do it in
 this order on purpose.
 
+> **Note:** A complete Slack app manifest with all Phase 1–8 features is maintained
+> at `slack-app-manifest.yaml` in the repository root. You can use this manifest to
+> create a new app or update an existing one via the Slack Developer Portal.
+
 ---
 
 ## Phase 1 — Do this before deploy

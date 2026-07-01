@@ -102,7 +102,33 @@ Slack's review asks how customer data is handled:
 - Any future scope additions require review planning, updated OAuth URLs after
   approval, and likely a demo/staging app.
 
-## 5. Branding assets [BUSINESS]
+## 5. App manifest and display information
+
+A complete Slack app manifest reflecting all Phase 1–8 features is maintained at
+`slack-app-manifest.yaml` in the repository root. This manifest includes:
+
+- **Display information** with a comprehensive description of MyQueue's capabilities
+- **Features** (App Home, slash commands, shortcuts, bot user)
+- **OAuth scopes** (bot and user scopes matching `SLACK_BOT_SCOPES`/`SLACK_USER_SCOPES`)
+- **Event subscriptions** and **Interactivity** configuration
+
+The manifest's `display_information.description` and `long_description` reflect:
+
+- Automatic attention capture from DMs, mentions, and threads
+- MCA edition priority classification (Red/Yellow/Green)
+- App Home dashboard with priority/status filters and statistics
+- `/myqueue` command for navigation and API token generation
+- Block Kit actions and quick follow-up scheduling
+- Slack DM notifications (assignment, wake-up, reminders, digest)
+- Privacy-first design (metadata pointers only, no message bodies stored)
+- Multi-tenant OAuth with encrypted token storage
+- Subscription billing (Free/Pro/Business tiers)
+- HTTP API with bearer token authentication
+
+**[BUSINESS]** Review the manifest's display text and update as needed before
+applying it to the production app in the Slack Developer Portal.
+
+## 6. Branding assets [BUSINESS]
 
 Slack listings require these assets. MyQueue ships none of them; the business
 must supply final artwork to spec:
@@ -119,7 +145,7 @@ must supply final artwork to spec:
 Use the [user guide](./user-guide.md) as the source for accurate feature copy and
 screenshot scenarios.
 
-## 6. Legal & support links [BUSINESS]
+## 7. Legal & support links [BUSINESS]
 
 The listing must link to:
 
@@ -130,30 +156,33 @@ The listing must link to:
 - **Pricing page** — reflecting the Free/Pro/Business tiers (see the
   [admin guide](./admin-guide.md)).
 
-## 7. Submission checklist
+## 8. Submission checklist
 
 - [ ] Production deployment live at a stable HTTPS domain (`APP_BASE_URL`).
 - [ ] Portal Redirect URLs, Event Subscriptions, Interactivity, Slash Commands,
       and App Home configured per [slack.md](./slack.md). **[BUSINESS]** domain.
 - [ ] Bot/User scopes in the portal exactly match `SLACK_BOT_SCOPES` and
       `SLACK_USER_SCOPES`.
+- [ ] **App manifest updated** with `slack-app-manifest.yaml` reflecting all
+      Phase 1–8 features (§5).
 - [ ] OAuth install/uninstall verified end-to-end in a clean workspace.
 - [ ] End-to-end testing completed on a workspace that is not the development workspace.
 - [ ] App installed on 5+ active workspaces before Marketplace submission.
 - [ ] Demo video recorded: install/OAuth, setup, App Home, auto capture, priority
       correction, follow-up action, Open chat, and uninstall.
 - [ ] `/health`, `/ready`, `/version` green from the public domain.
-- [ ] **[BUSINESS]** Branding assets uploaded (§5).
-- [ ] **[BUSINESS]** Privacy policy, ToS, support, and pricing links live (§6).
+- [ ] **[BUSINESS]** Branding assets uploaded (§6).
+- [ ] **[BUSINESS]** Privacy policy, ToS, support, and pricing links live (§7).
 - [ ] Data-handling answers prepared from §3.
 - [ ] Security review materials ready (see [security-audit.md](./security-audit.md),
       Slice 6).
 - [ ] Accessibility notes prepared (see
       [accessibility-audit.md](./accessibility-audit.md), Slice 6).
 
-## 8. Open business decisions
+## 9. Open business decisions
 
 1. **[BUSINESS]** Legal entity, support contact, and jurisdiction for legal docs.
 2. **[BUSINESS]** Production domain and final redirect URL.
-3. **[BUSINESS]** Branding artwork and listing copy.
-4. **[BUSINESS]** Public pricing presentation for the plan tiers.
+3. **[BUSINESS]** Review and approve the app manifest display text (§5).
+4. **[BUSINESS]** Branding artwork and listing copy (§6).
+5. **[BUSINESS]** Public pricing presentation for the plan tiers.

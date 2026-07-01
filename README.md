@@ -25,6 +25,13 @@ Docker packaging, a full test suite, and CI/CD:
   snooze wake-ups, follow-up reminders, and a daily digest — gated by
   per-workspace preferences and deduped so retries never double-send (see
   [docs/slack.md](docs/slack.md)).
+- **Phase 6** — billing & subscriptions: Stripe integration with Free/Pro/Business
+  tiers, entitlement enforcement, usage analytics, and webhook processing.
+- **Phase 7** — API authentication: HS256 bearer tokens minted from verified Slack
+  identity via `/myqueue token`, enabling external integrations.
+- **Phase 8** — Marketplace readiness: comprehensive documentation, security/performance
+  audits, deployment guides, legal templates, and a complete Slack app manifest
+  (see [slack-app-manifest.yaml](slack-app-manifest.yaml)).
 
 ## Tech stack
 

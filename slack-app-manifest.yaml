@@ -1,0 +1,107 @@
+# Slack App Manifest for MyQueue
+# This manifest can be used to create or update the MyQueue Slack app.
+# Update the display_information, features, and settings sections in the Slack Developer Portal
+# to match the configuration below.
+
+display_information:
+  name: MyQueue
+  description: Your personal, prioritized work queue inside Slack. Capture attention from DMs, mentions, and threads—then work through them in ranked order with smart MCA-edition priority detection.
+  background_color: "#4A154B"
+  long_description: |
+    MyQueue turns the messy stream of Slack DMs, channel mentions, threads, follow-ups, and reminders into a private ranked queue for each user.
+
+    **What MyQueue does:**
+    • Automatically captures attention pointers from Slack messages (DMs, mentions, threads)
+    • Ranks items by priority using the MCA edition classifier (tuned for merchant-cash-advance and business-funding language)
+    • Provides an App Home dashboard with Red/Yellow/Green priority filters, Working/Waiting/Follow-up/Snoozed/Archived views
+    • Lets you manage your queue without leaving Slack using /myqueue commands and Block Kit actions
+    • Sends proactive notifications for assignments, snooze wake-ups, follow-up reminders, and daily digests
+    • Links every queue item back to the original Slack chat/message so you can respond when ready
+    • Privacy-first: stores only metadata (sender, channel, timestamp, permalink, priority)—not message bodies
+
+    **Key features:**
+    • App Home dashboard with priority/status filters and queue statistics
+    • /myqueue slash command for navigation and API token generation
+    • "Add to MyQueue" message shortcut for manual capture
+    • Smart MCA edition priority classifier (Red/Yellow/Green) with feedback correction
+    • Automatic DM, mention, and thread attention capture
+    • Block Kit actions: Start, Follow Up, Waiting, Snooze, Complete, Archive, Open Chat
+    • Quick follow-up scheduling (30 min, today, tomorrow, Monday)
+    • Slack DM notifications (assignment, wake-up, reminders, digest)
+    • Multi-tenant OAuth with encrypted token storage (AES-256-GCM)
+    • Subscription billing via Stripe (Free/Pro/Business tiers)
+    • HTTP API with bearer token authentication for external integrations
+    • Full tenant isolation and workspace-scoped data
+
+    **Privacy & Security:**
+    • No message content stored—only privacy-safe attention pointers
+    • Bot tokens encrypted at rest (AES-256-GCM)
+    • CSRF + replay protection on OAuth flow
+    • Signature verification on all Slack requests
+    • Tenant-isolated data with workspace-level scoping
+    • Least-privilege scope model (no admin, search, or file scopes)
+
+    **Plans:**
+    • Free: 50 active items, 30-day retention, core features
+    • Pro: 200 active items, 90-day retention, daily digest, priority support
+    • Business: 500 active items, 1-year retention, advanced analytics, SLA
+
+features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: false
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: MyQueue
+    always_online: true
+  shortcuts:
+    - name: Add to MyQueue
+      type: message
+      callback_id: myqueue_add_message
+      description: Save this message to your queue
+  slash_commands:
+    - command: /myqueue
+      url: https://app.myqueue.syndiscore.com/slack/events
+      description: Manage your MyQueue
+      usage_hint: "[view|add|help|token]"
+      should_escape: false
+
+oauth_config:
+  redirect_urls:
+    - https://app.myqueue.syndiscore.com/slack/oauth_redirect
+  scopes:
+    bot:
+      - commands
+      - chat:write
+      - im:write
+      - im:read
+      - users:read
+      - team:read
+      - channels:read
+      - channels:history
+      - groups:read
+      - groups:history
+      - mpim:read
+      - mpim:history
+      - im:history
+    user:
+      - im:read
+      - im:history
+
+settings:
+  event_subscriptions:
+    request_url: https://app.myqueue.syndiscore.com/slack/events
+    bot_events:
+      - app_home_opened
+      - app_uninstalled
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+      - app_mention
+  interactivity:
+    is_enabled: true
+    request_url: https://app.myqueue.syndiscore.com/slack/events
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
